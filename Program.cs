@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
 using HtmlAgilityPack;
 using PasswordGenerator;
@@ -90,9 +91,10 @@ static async Task Run(Uri mastodonUrl, string adminAccessToken, Uri rssUrl)
     response.EnsureSuccessStatusCode();
 
     // 5. タグの設定
+    var safe = new Regex(@"\s");
     foreach (var keyword in profileInfo.Keywords)
     {
-        response = await mstdnClient.PostAsJsonAsync("/api/v1/featured_tags", new { name = keyword });
+        response = await mstdnClient.PostAsJsonAsync("/api/v1/featured_tags", new { name = safe.Replace(keyword, "_")});
         response.EnsureSuccessStatusCode();
     }
     Console.WriteLine(account.access_token);
