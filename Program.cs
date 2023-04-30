@@ -24,7 +24,7 @@ static async Task Run(Uri mastodonUrl, string adminAccessToken, Uri rssUrl)
         DefaultRequestHeaders = { Authorization = new("Bearer", adminAccessToken) }
     };
     // 1. アカウントの作成
-    var name = rssUrl.Host.Split('.').OrderByDescending(x => x.Length).First();
+    var name = rssUrl.Host.Split('.').OrderByDescending(x => x.Length).First().Replace('-', '_');
     var pwd = new Password(32);
     // name = new Password(6).IncludeLowercase().Next();
     var createAccountData = new
@@ -92,12 +92,14 @@ static async Task Run(Uri mastodonUrl, string adminAccessToken, Uri rssUrl)
 
     // 5. タグの設定
     var safe = new Regex(@"\s");
-    foreach (var keyword in profileInfo.Keywords)
+    foreach (var keyword in profileInfo.Keywords.Take(10))
     {
-        response = await mstdnClient.PostAsJsonAsync("/api/v1/featured_tags", new { name = safe.Replace(keyword, "_")});
+        response = await mstdnClient.PostAsJsonAsync("/api/v1/featured_tags", new { name = safe.Replace(keyword, "_") });
         response.EnsureSuccessStatusCode();
     }
-    Console.WriteLine(account.access_token);
+    Console.WriteLine($"email: {createAccountData.email}");
+    Console.WriteLine($"password: {createAccountData.password}");
+    Console.WriteLine($"token: {account.access_token}");
 }
 
 static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
@@ -122,6 +124,10 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
         using var fileStream = File.Open(iconPath, FileMode.Create);
         await stram.CopyToAsync(fileStream);
     }
+    else
+    {
+        File.Delete(iconPath);
+    }
 
     // keywordsを取得して、それをタグに設定する
     var keywords = document.DocumentNode.SelectSingleNode("//meta[@name='keywords']")?.GetAttributeValue("content", string.Empty)
@@ -144,6 +150,10 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
         using var stram = await httpClient.GetStreamAsync(imageLink);
         using var fileStream = File.Open(thumbnailPath, FileMode.Create);
         await stram.CopyToAsync(fileStream);
+    }
+    else
+    {
+        File.Delete(thumbnailPath);
     }
 
     // urlがルートだったら、RSSフィードのURLを取得して、ちがったらそのまま使う
