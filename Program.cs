@@ -155,6 +155,10 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
     {
         File.Delete(thumbnailPath);
     }
+    if (!File.Exists(iconPath) && File.Exists(thumbnailPath))
+    {
+        iconPath = thumbnailPath;
+    }
 
     // urlがルートだったら、RSSフィードのURLを取得して、ちがったらそのまま使う
     var rssUrl = url.AbsolutePath == "/" ? document.DocumentNode.SelectSingleNode("//link[@type='application/rss+xml']")?.GetAttributeValue("href", string.Empty) : url.AbsoluteUri;
