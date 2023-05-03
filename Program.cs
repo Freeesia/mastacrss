@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
 using HtmlAgilityPack;
+using Mastonet;
+using Mastonet.Entities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using PasswordGenerator;
@@ -25,30 +27,70 @@ await app.RunAsync();
 
 static async Task Run(IOptions<ConsoleOptions> options)
 {
-    var (mastodonUrl, appAccessToken, rssUrl) = options.Value;
-    var profileInfo = await FetchProfileInfoFromWebsite(rssUrl);
+    var (mastodonUrl, tootAppToken, monitoringToken) = options.Value;
+    var client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken);
+    async void CheckRssUrl(Status? status)
+    {
+        if (status is null) return;
+        var url = GetUrl(status.Content);
+        if (url is null) return;
+        var profileInfo = await FetchProfileInfoFromWebsite(url);
+        var accounts = await client.SearchAccounts(profileInfo.Name);
+        if (accounts.Any(a => a.AccountName == profileInfo.Name)) return;
+        var bot = await CreateBot(mastodonUrl, tootAppToken, profileInfo);
+        await client.Follow(bot.Id, true);
+        await client.PublishStatus($"""
+            @{status.Account.AccountName}
+            @{profileInfo.Name} を作成しました。
+            """, status.Visibility, status.Id);
+    }
+    var convs = await client.GetConversations();
+    foreach (var conv in convs)
+    {
+        CheckRssUrl(conv.LastStatus);
+    }
+    
+    var ust = client.GetUserStreaming();
+    var dm = client.GetDirectMessagesStreaming();
+    ust.OnConversation += (_, e) => CheckRssUrl(e.Conversation.LastStatus);
+    dm.OnConversation += (_, e) => CheckRssUrl(e.Conversation.LastStatus);
+    await Task.WhenAll(ust.Start(), dm.Start());
+}
 
+static Uri? GetUrl(string? content)
+{
+    if (content is null) return null;
+    var document = new HtmlDocument();
+    document.LoadHtml(content);
+    var link = document.DocumentNode.SelectSingleNode("/p/a");
+    return link is null ? null : new(link.Attributes["href"].Value);
+}
+
+static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, ProfileInfo profileInfo)
+{
     using var mstdnClient = new HttpClient()
     {
         BaseAddress = mastodonUrl,
         DefaultRequestHeaders = { Authorization = new("Bearer", appAccessToken) }
     };
     // 1. アカウントの作成
-    var name = rssUrl.Host.Split('.').OrderByDescending(x => x.Length).First().Replace('-', '_');
     var pwd = new Password(32);
     // name = new Password(6).IncludeLowercase().Next();
     var createAccountData = new
     {
-        username = name,
-        email = $"mastodon+{name}@studiofreesia.com",
+        username = profileInfo.Name,
+        email = $"mastodon+{profileInfo.Name}@studiofreesia.com",
         password = pwd.Next(),
         agreement = true,
         locale = "ja"
     };
     var response = await mstdnClient.PostAsJsonAsync("/api/v1/accounts", createAccountData);
     response.EnsureSuccessStatusCode();
-    var account = await response.Content.ReadFromJsonAsync<AccountCredentials>() ?? throw new Exception("Failed to create account");
-    mstdnClient.DefaultRequestHeaders.Authorization = new("Bearer", account.access_token);
+    var cred = await response.Content.ReadFromJsonAsync<AccountCredentials>() ?? throw new Exception("Failed to create account");
+    mstdnClient.DefaultRequestHeaders.Authorization = new("Bearer", cred.access_token);
+    Console.WriteLine($"email: {createAccountData.email}");
+    Console.WriteLine($"password: {createAccountData.password}");
+    Console.WriteLine($"token: {cred.access_token}");
 
     do
     {
@@ -61,6 +103,7 @@ static async Task Run(IOptions<ConsoleOptions> options)
             response.EnsureSuccessStatusCode();
         }
     } while (!response.IsSuccessStatusCode);
+    var account = await response.Content.ReadFromJsonAsync<AccountInfo>() ?? throw new Exception("Failed to get account info");
 
     // 3. プロフィール画像の設定
     var updateCredentialsUrl = "/api/v1/accounts/update_credentials";
@@ -92,7 +135,7 @@ static async Task Run(IOptions<ConsoleOptions> options)
         fields_attributes = new Dictionary<int, object>()
         {
             [0] = new { name = "Website", value = profileInfo.Link, },
-            [1] = new { name = "RSS", value = rssUrl.AbsoluteUri, },
+            [1] = new { name = "RSS", value = profileInfo.Rss, },
         },
         bot = true,
         discoverable = true,
@@ -101,19 +144,21 @@ static async Task Run(IOptions<ConsoleOptions> options)
     response.EnsureSuccessStatusCode();
 
     // 5. タグの設定
-    var safe = new Regex(@"\s");
+    var safe = new Regex(@"[\s\*_\-\[\]\(\)]");
     foreach (var keyword in profileInfo.Keywords.Take(10))
     {
         response = await mstdnClient.PostAsJsonAsync("/api/v1/featured_tags", new { name = safe.Replace(keyword, "_") });
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.WriteLine($"Failed to add tag: {keyword}");
+        }
     }
-    Console.WriteLine($"email: {createAccountData.email}");
-    Console.WriteLine($"password: {createAccountData.password}");
-    Console.WriteLine($"token: {account.access_token}");
+    return new(account.id, cred.access_token);
 }
 
 static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
 {
+    var name = url.Host.Split('.').OrderByDescending(x => x.Length).First().Replace('-', '_');
     using var httpClient = new HttpClient();
     // ルートHTMLを取得
     var response = await httpClient.GetAsync(url.GetLeftPart(UriPartial.Authority));
@@ -172,21 +217,24 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
 
     // urlがルートだったら、RSSフィードのURLを取得して、ちがったらそのまま使う
     var rssUrl = url.AbsolutePath == "/" ? document.DocumentNode.SelectSingleNode("//link[@type='application/rss+xml']")?.GetAttributeValue("href", string.Empty) : url.AbsoluteUri;
+    rssUrl ??= url.AbsoluteUri;
     // rssからtitle, description,link,languageを取得して設定する
     var feed = await FeedReader.ReadAsync(rssUrl);
-    return new ProfileInfo(iconPath, thumbnailPath, feed.Title, feed.Description, feed.Link, keywords);
+    return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, feed.Description, feed.Link, rssUrl, keywords);
 }
 record AccountCredentials(string access_token, string token_type, string scope, long created_at);
+record AccountInfo(string id);
 record AppCredentials(string client_id, string client_secret, string vapid_key);
-record ProfileInfo(string IconPath, string ThumbnailPath, string Title, string Description, string Link, string[] Keywords);
+record ProfileInfo(string Name, string IconPath, string ThumbnailPath, string Title, string Description, string Link, string Rss, string[] Keywords);
+record BotInfo(string Id, string Token);
 record ConsoleOptions
 {
     public required Uri MastodonUrl { get; init; }
-    public required string AppAccessToken { get; init; }
-    public required Uri RssUrl { get; init; }
+    public required string TootAppToken { get; init; }
+    public required string MonitoringToken { get; init; }
 
-    public void Deconstruct(out Uri mastodonUrl, out string appAccessToken, out Uri rssUrl)
-        => (mastodonUrl, appAccessToken, rssUrl) = (MastodonUrl, AppAccessToken, RssUrl);
+    public void Deconstruct(out Uri mastodonUrl, out string tootAppToken, out string monitoringToken)
+        => (mastodonUrl, tootAppToken, monitoringToken) = (this.MastodonUrl, this.TootAppToken, this.MonitoringToken);
 }
 
 static class HttpClientExtensions
