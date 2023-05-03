@@ -6,6 +6,7 @@ using HtmlAgilityPack;
 using Mastonet;
 using Mastonet.Entities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PasswordGenerator;
 
@@ -25,7 +26,7 @@ var app = builder.Build();
 app.AddRootCommand(Run);
 await app.RunAsync();
 
-static async Task Run(IOptions<ConsoleOptions> options)
+static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
 {
     var (mastodonUrl, tootAppToken, monitoringToken) = options.Value;
     var client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken);
@@ -37,19 +38,20 @@ static async Task Run(IOptions<ConsoleOptions> options)
         var profileInfo = await FetchProfileInfoFromWebsite(url);
         var accounts = await client.SearchAccounts(profileInfo.Name);
         if (accounts.Any(a => a.AccountName == profileInfo.Name)) return;
-        var bot = await CreateBot(mastodonUrl, tootAppToken, profileInfo);
+        var bot = await CreateBot(mastodonUrl, tootAppToken, profileInfo, logger);
         await client.Follow(bot.Id, true);
         await client.PublishStatus($"""
             @{status.Account.AccountName}
             @{profileInfo.Name} を作成しました。
             """, status.Visibility, status.Id);
+        logger.LogInformation($"Created bot account @{profileInfo.Name}");
     }
     var convs = await client.GetConversations();
     foreach (var conv in convs)
     {
         CheckRssUrl(conv.LastStatus);
     }
-    
+
     var ust = client.GetUserStreaming();
     var dm = client.GetDirectMessagesStreaming();
     ust.OnConversation += (_, e) => CheckRssUrl(e.Conversation.LastStatus);
@@ -66,7 +68,7 @@ static Uri? GetUrl(string? content)
     return link is null ? null : new(link.Attributes["href"].Value);
 }
 
-static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, ProfileInfo profileInfo)
+static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, ProfileInfo profileInfo, ILogger logger)
 {
     using var mstdnClient = new HttpClient()
     {
@@ -88,13 +90,14 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
     response.EnsureSuccessStatusCode();
     var cred = await response.Content.ReadFromJsonAsync<AccountCredentials>() ?? throw new Exception("Failed to create account");
     mstdnClient.DefaultRequestHeaders.Authorization = new("Bearer", cred.access_token);
-    Console.WriteLine($"email: {createAccountData.email}");
-    Console.WriteLine($"password: {createAccountData.password}");
-    Console.WriteLine($"token: {cred.access_token}");
+    logger.LogInformation($"Created account @{createAccountData.username}");
+    logger.LogInformation($"email: {createAccountData.email}");
+    logger.LogInformation($"password: {createAccountData.password}");
+    logger.LogInformation($"token: {cred.access_token}");
 
     do
     {
-        Console.WriteLine("Waiting for account creation...");
+        logger.LogInformation("Waiting for account creation...");
         await Task.Delay(10000);
         response = await mstdnClient.GetAsync("/api/v1/accounts/verify_credentials");
         // 403が返ってきたら、まだアカウントが作成されていないので、10秒待って再度試行する
@@ -150,7 +153,7 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
         response = await mstdnClient.PostAsJsonAsync("/api/v1/featured_tags", new { name = safe.Replace(keyword, "_") });
         if (!response.IsSuccessStatusCode)
         {
-            Console.WriteLine($"Failed to add tag: {keyword}");
+            logger.LogWarning($"Failed to add tag: {keyword}");
         }
     }
     return new(account.id, cred.access_token);
