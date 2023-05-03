@@ -10,15 +10,10 @@
             "request": "launch",
             "preLaunchTask": "build",
             "program": "${workspaceFolder}/bin/Debug/net7.0/mastacrss.dll",
-            "args": [
-                "--mastodon-url",
-                "https://rss-mstdn.studiofreesia.com",
-                "--admin-access-token",
-                "--rss-url",
-            ],
             "cwd": "${workspaceFolder}",
             "console": "internalConsole",
-            "stopAtEntry": false
+            "stopAtEntry": false,
+            "envFile": "${workspaceFolder}/.env",
         },
         {
             "name": ".NET Core Attach",

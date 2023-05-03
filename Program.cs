@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
 using HtmlAgilityPack;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using PasswordGenerator;
 
 const string DescSuffix = """
@@ -12,16 +14,24 @@ const string DescSuffix = """
 このアカウントの投稿に関するお問い合わせは @owner までお願いします。
 """;
 
-await ConsoleApp.RunAsync(args, Run);
-
-static async Task Run(Uri mastodonUrl, string adminAccessToken, Uri rssUrl)
+var builder = ConsoleApp.CreateBuilder(args);
+builder.ConfigureServices((ctx, services) =>
 {
+    services.Configure<ConsoleOptions>(ctx.Configuration);
+});
+var app = builder.Build();
+app.AddRootCommand(Run);
+await app.RunAsync();
+
+static async Task Run(IOptions<ConsoleOptions> options)
+{
+    var (mastodonUrl, appAccessToken, rssUrl) = options.Value;
     var profileInfo = await FetchProfileInfoFromWebsite(rssUrl);
 
     using var mstdnClient = new HttpClient()
     {
         BaseAddress = mastodonUrl,
-        DefaultRequestHeaders = { Authorization = new("Bearer", adminAccessToken) }
+        DefaultRequestHeaders = { Authorization = new("Bearer", appAccessToken) }
     };
     // 1. アカウントの作成
     var name = rssUrl.Host.Split('.').OrderByDescending(x => x.Length).First().Replace('-', '_');
@@ -169,6 +179,15 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
 record AccountCredentials(string access_token, string token_type, string scope, long created_at);
 record AppCredentials(string client_id, string client_secret, string vapid_key);
 record ProfileInfo(string IconPath, string ThumbnailPath, string Title, string Description, string Link, string[] Keywords);
+record ConsoleOptions
+{
+    public required Uri MastodonUrl { get; init; }
+    public required string AppAccessToken { get; init; }
+    public required Uri RssUrl { get; init; }
+
+    public void Deconstruct(out Uri mastodonUrl, out string appAccessToken, out Uri rssUrl)
+        => (mastodonUrl, appAccessToken, rssUrl) = (MastodonUrl, AppAccessToken, RssUrl);
+}
 
 static class HttpClientExtensions
 {
