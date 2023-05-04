@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
@@ -161,7 +161,10 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
 
 static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
 {
-    var name = url.Host.Split('.').OrderByDescending(x => x.Length).First().Replace('-', '_');
+    var name = url.Host.Split('.').OrderByDescending(x => x.Length)
+        .Where(s => s is not "www")
+        .First()
+        .Replace('-', '_');
     using var httpClient = new HttpClient();
     // ルートHTMLを取得
     var response = await httpClient.GetAsync(url.GetLeftPart(UriPartial.Authority));
