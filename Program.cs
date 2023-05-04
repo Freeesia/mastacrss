@@ -1,8 +1,9 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
 using HtmlAgilityPack;
+using mastacrss;
 using Mastonet;
 using Mastonet.Entities;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,39 +18,66 @@ const string DescSuffix = """
 このアカウントの投稿に関するお問い合わせは @owner までお願いします。
 """;
 
-var builder = ConsoleApp.CreateBuilder(args);
-builder.ConfigureServices((ctx, services) =>
-{
-    services.Configure<ConsoleOptions>(ctx.Configuration);
-});
-var app = builder.Build();
+var app = ConsoleApp.CreateBuilder(args)
+    .ConfigureServices((ctx, services) => services.Configure<ConsoleOptions>(ctx.Configuration))
+    .Build();
 app.AddRootCommand(Run);
 await app.RunAsync();
 
 static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
 {
-    var (mastodonUrl, tootAppToken, monitoringToken) = options.Value;
+    var (mastodonUrl, tootAppToken, monitoringToken, configPath) = options.Value;
     var client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken);
     async void CheckRssUrl(Status? status)
     {
         if (status is null) return;
         var url = GetUrl(status.Content);
         if (url is null) return;
-        var profileInfo = await FetchProfileInfoFromWebsite(url);
+        var profileInfo = await FallbackIfException(
+            () => FetchProfileInfoFromWebsite(url),
+            async ex => logger.LogError(ex, $"Failed to fetch profile info from {url}"));
+        if (profileInfo is null) return;
         var accounts = await client.SearchAccounts(profileInfo.Name);
         if (accounts.Any(a => a.AccountName == profileInfo.Name)) return;
         var bot = await CreateBot(mastodonUrl, tootAppToken, profileInfo, logger);
         await client.Follow(bot.Id, true);
+        await client.Favourite(status.Id);
         await client.PublishStatus($"""
             @{status.Account.AccountName}
             @{profileInfo.Name} を作成しました。
             """, status.Visibility, status.Id);
         logger.LogInformation($"Created bot account @{profileInfo.Name}");
+        var config = await TomatoShriekerConfig.Load(configPath);
+        config.Sources.Add(new()
+        {
+            Id = profileInfo.Name,
+            Source = new()
+            {
+                Feed = profileInfo.Rss,
+                RemoteKeyword = new()
+                {
+                    Enable = true,
+                    Ignore = null,
+                    ReplaceRules = null,
+                },
+            },
+            Dest = new()
+            {
+                Account = new() { Bot = true },
+                Mastodon = new() { Url = mastodonUrl.AbsoluteUri, Token = bot.Token },
+            }
+        });
+        await config.Save(configPath);
+        logger.LogInformation($"Saved config to {configPath}");
     }
+    var me = await client.GetCurrentUser();
     var convs = await client.GetConversations();
-    foreach (var conv in convs)
+    var statuses = convs.Select(c => c.LastStatus)
+        .OfType<Status>()
+        .Where(s => s.Account.Id != me.Id && !(s.Favourited ?? false));
+    foreach (var status in statuses)
     {
-        CheckRssUrl(conv.LastStatus);
+        CheckRssUrl(status);
     }
 
     var ust = client.GetUserStreaming();
@@ -228,6 +256,20 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
     var feed = await FeedReader.ReadAsync(rssUrl);
     return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, feed.Description, feed.Link, rssUrl, keywords);
 }
+
+static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Func<Exception, Task> fallback)
+    where T : notnull
+{
+    try
+    {
+        return await func().ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+        await fallback(ex).ConfigureAwait(false);
+        return default;
+    }
+}
 record AccountCredentials(string access_token, string token_type, string scope, long created_at);
 record AccountInfo(string id);
 record AppCredentials(string client_id, string client_secret, string vapid_key);
@@ -238,9 +280,11 @@ record ConsoleOptions
     public required Uri MastodonUrl { get; init; }
     public required string TootAppToken { get; init; }
     public required string MonitoringToken { get; init; }
+    public required string ConfigPath { get; init; }
 
-    public void Deconstruct(out Uri mastodonUrl, out string tootAppToken, out string monitoringToken)
-        => (mastodonUrl, tootAppToken, monitoringToken) = (this.MastodonUrl, this.TootAppToken, this.MonitoringToken);
+    public void Deconstruct(out Uri mastodonUrl, out string tootAppToken, out string monitoringToken, out string configPath)
+        => (mastodonUrl, tootAppToken, monitoringToken, configPath)
+        = (this.MastodonUrl, this.TootAppToken, this.MonitoringToken, this.ConfigPath);
 }
 
 static class HttpClientExtensions

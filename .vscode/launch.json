@@ -13,6 +13,9 @@
             "cwd": "${workspaceFolder}",
             "console": "internalConsole",
             "stopAtEntry": false,
+            "env": {
+                "ConfigPath": "${workspaceFolder}/local.yml"
+            },
             "envFile": "${workspaceFolder}/.env",
         },
         {
