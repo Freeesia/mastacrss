@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
@@ -35,7 +35,7 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
         if (url is null) return;
         var profileInfo = await FallbackIfException(
             () => FetchProfileInfoFromWebsite(url),
-            async ex => logger.LogError(ex, $"Failed to fetch profile info from {url}"));
+            ex => logger.LogError(ex, $"Failed to fetch profile info from {url}"));
         if (profileInfo is null) return;
         var accounts = await client.SearchAccounts(profileInfo.Name);
         if (accounts.Any(a => a.AccountName == profileInfo.Name)) return;
@@ -140,7 +140,7 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
     var updateCredentialsUrl = "/api/v1/accounts/update_credentials";
 
     // apple-touch-icon.pngを取得して設定する
-    if (File.Exists(profileInfo.IconPath))
+    if (!string.IsNullOrEmpty(profileInfo.IconPath))
     {
         using var avatarFile = File.OpenRead(profileInfo.IconPath);
         var content = new MultipartFormDataContent();
@@ -149,7 +149,7 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
         response.EnsureSuccessStatusCode();
     }
     // og:imageを取得して設定する
-    if (File.Exists(profileInfo.ThumbnailPath))
+    if (!string.IsNullOrEmpty(profileInfo.ThumbnailPath))
     {
         using var headerFile = File.OpenRead(profileInfo.ThumbnailPath);
         var content = new MultipartFormDataContent();
@@ -194,28 +194,18 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
         .First()
         .Replace('-', '_');
     using var httpClient = new HttpClient();
+    httpClient.BaseAddress = url;
     // ルートHTMLを取得
-    var response = await httpClient.GetAsync(url.GetLeftPart(UriPartial.Authority));
+    var response = await httpClient.GetAsync("/");
     var document = new HtmlDocument();
     document.Load(await response.Content.ReadAsStreamAsync());
 
     // apple-touch-iconの画像をダウンロードしてパスを取得する
-    var iconPath = Path.GetTempFileName();
+    string? iconPath = null;
     var appleTouchIconLink = document.DocumentNode.SelectSingleNode("//link[@rel='apple-touch-icon']")?.GetAttributeValue("href", string.Empty);
     if (!string.IsNullOrEmpty(appleTouchIconLink))
     {
-        if (!Uri.IsWellFormedUriString(appleTouchIconLink, UriKind.Absolute))
-        {
-            var builder = new UriBuilder(url) { Path = appleTouchIconLink };
-            appleTouchIconLink = builder.Uri.AbsoluteUri;
-        }
-        using var stram = await httpClient.GetStreamAsync(appleTouchIconLink);
-        using var fileStream = File.Open(iconPath, FileMode.Create);
-        await stram.CopyToAsync(fileStream);
-    }
-    else
-    {
-        File.Delete(iconPath);
+        iconPath = await httpClient.DownloadAsync(appleTouchIconLink);
     }
 
     // keywordsを取得して、それをタグに設定する
@@ -226,23 +216,12 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
         .ToArray() ?? Array.Empty<string>();
 
     // og:imageの画像をダウンロードしてパスを取得する
-    var thumbnailPath = Path.GetTempFileName();
+    string? thumbnailPath = null;
     var imageLink = document.DocumentNode.SelectSingleNode("//meta[@property='og:image']")?.GetAttributeValue("content", string.Empty);
     imageLink ??= document.DocumentNode.SelectSingleNode("//meta[@name='twitter:image:src']")?.GetAttributeValue("content", string.Empty);
     if (!string.IsNullOrEmpty(imageLink))
     {
-        if (!Uri.IsWellFormedUriString(imageLink, UriKind.Absolute))
-        {
-            var builder = new UriBuilder(url) { Path = imageLink };
-            imageLink = builder.Uri.AbsoluteUri;
-        }
-        using var stram = await httpClient.GetStreamAsync(imageLink);
-        using var fileStream = File.Open(thumbnailPath, FileMode.Create);
-        await stram.CopyToAsync(fileStream);
-    }
-    else
-    {
-        File.Delete(thumbnailPath);
+        thumbnailPath = await httpClient.DownloadAsync(imageLink);
     }
     if (!File.Exists(iconPath) && File.Exists(thumbnailPath))
     {
@@ -250,14 +229,20 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
     }
 
     // urlがルートだったら、RSSフィードのURLを取得して、ちがったらそのまま使う
-    var rssUrl = url.AbsolutePath == "/" ? document.DocumentNode.SelectSingleNode("//link[@type='application/rss+xml']")?.GetAttributeValue("href", string.Empty) : url.AbsoluteUri;
-    rssUrl ??= url.AbsoluteUri;
+    var rssUrl = url.AbsoluteUri;
+    var feed = await FallbackIfException(() => FeedReader.ReadAsync(rssUrl), _ => { });
+    if (feed is null)
+    {
+        rssUrl = document.DocumentNode.SelectSingleNode("//link[@type='application/rss+xml']")
+            ?.GetAttributeValue("href", string.Empty)
+            ?? throw new InvalidOperationException("'application/rss+xml' not found");
+        feed = await FeedReader.ReadAsync(rssUrl);
+    }
     // rssからtitle, description,link,languageを取得して設定する
-    var feed = await FeedReader.ReadAsync(rssUrl);
     return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, feed.Description, feed.Link, rssUrl, keywords);
 }
 
-static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Func<Exception, Task> fallback)
+static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Action<Exception> fallback)
     where T : notnull
 {
     try
@@ -266,14 +251,14 @@ static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Func<Exception,
     }
     catch (Exception ex)
     {
-        await fallback(ex).ConfigureAwait(false);
+        fallback(ex);
         return default;
     }
 }
 record AccountCredentials(string access_token, string token_type, string scope, long created_at);
 record AccountInfo(string id);
 record AppCredentials(string client_id, string client_secret, string vapid_key);
-record ProfileInfo(string Name, string IconPath, string ThumbnailPath, string Title, string Description, string Link, string Rss, string[] Keywords);
+record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Link, string Rss, string[] Keywords);
 record BotInfo(string Id, string Token);
 record ConsoleOptions
 {
@@ -301,4 +286,21 @@ static class HttpClientExtensions
 
     public static Task<HttpResponseMessage> PatchAsJsonAsync<T>(this HttpClient client, string requestUri, T value)
         => client.PatchAsync(requestUri, JsonContent.Create(value));
+
+    public static async Task<string?> DownloadAsync(this HttpClient client, string requestUri)
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            using var stram = await client.GetStreamAsync(requestUri);
+            using var fileStream = File.Open(path, FileMode.Create);
+            await stram.CopyToAsync(fileStream);
+        }
+        catch (Exception)
+        {
+            File.Delete(path);
+            path = null;
+        }
+        return path;
+    }
 }
