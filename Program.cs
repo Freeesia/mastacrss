@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
@@ -161,7 +161,7 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
     // 4. プロフィール文の設定
     var updateProfileData = new
     {
-        display_name = profileInfo.Title[..30],
+        display_name = profileInfo.Title[..Math.Min(30, profileInfo.Title.Length)],
         note = profileInfo.Description + DescSuffix,
         fields_attributes = new Dictionary<int, object>()
         {
