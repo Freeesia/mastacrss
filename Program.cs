@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
@@ -238,8 +238,16 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
             ?? throw new InvalidOperationException("'application/rss+xml' not found");
         feed = await FeedReader.ReadAsync(rssUrl);
     }
+    var description = feed.Description;
+    if (string.IsNullOrEmpty(description))
+    {
+        description = (document.DocumentNode.SelectSingleNode("//meta[@name='description']")
+            ?? document.DocumentNode.SelectSingleNode("//meta[@name='og:description']")
+            ?? document.DocumentNode.SelectSingleNode("//meta[@name='twitter:description']"))
+            ?.GetAttributeValue("content", string.Empty) ?? string.Empty;
+    }
     // rssからtitle, description,link,languageを取得して設定する
-    return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, feed.Description, feed.Link, rssUrl, keywords);
+    return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, description, feed.Link, rssUrl, keywords);
 }
 
 static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Action<Exception> fallback)
