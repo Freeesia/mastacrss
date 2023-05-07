@@ -15,7 +15,7 @@
     <PackageReference Include="Microsoft.Extensions.Options" Version="7.0.1" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="7.0.0" />
     <PackageReference Include="PasswordGenerator" Version="2.1.0" />
-    <PackageReference Include="VYaml" Version="0.10.0" />
+    <PackageReference Include="VYaml" Version="0.10.1" />
   </ItemGroup>
 
 </Project>
