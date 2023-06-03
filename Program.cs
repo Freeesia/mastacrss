@@ -170,6 +170,7 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
         },
         bot = true,
         discoverable = true,
+        source = new { language = profileInfo.Lang },
     };
     response = await mstdnClient.PatchAsJsonAsync(updateCredentialsUrl, updateProfileData);
     response.EnsureSuccessStatusCode();
@@ -246,8 +247,17 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
             ?? document.DocumentNode.SelectSingleNode("//meta[@name='twitter:description']"))
             ?.GetAttributeValue("content", string.Empty) ?? string.Empty;
     }
+    var lang = feed.Language;
+    if (string.IsNullOrEmpty(lang))
+    {
+        lang = "ja";
+    }
+    else if (lang.Length > 2)
+    {
+        lang = lang[..2];
+    }
     // rssからtitle, description,link,languageを取得して設定する
-    return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, description, feed.Link, rssUrl, keywords);
+    return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, description, lang, feed.Link, rssUrl, keywords);
 }
 
 static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Action<Exception> fallback)
@@ -266,7 +276,7 @@ static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Action<Exceptio
 record AccountCredentials(string access_token, string token_type, string scope, long created_at);
 record AccountInfo(string id);
 record AppCredentials(string client_id, string client_secret, string vapid_key);
-record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Link, string Rss, string[] Keywords);
+record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Lang, string Link, string Rss, string[] Keywords);
 record BotInfo(string Id, string Token);
 record ConsoleOptions
 {
