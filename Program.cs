@@ -35,13 +35,22 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
         if (url is null) return;
         var profileInfo = await FallbackIfException(
             () => FetchProfileInfoFromWebsite(url),
-            ex => logger.LogError(ex, $"Failed to fetch profile info from {url}"));
+            async ex =>
+            {
+                logger.LogError(ex, $"Failed to fetch profile info from {url}");
+                await client.PublishStatus($"""
+                @{status.Account.AccountName}
+                フィード情報の取得に失敗しました。別のURLをお試しください。
+                以下、エラー情報です。
+                {ex.ToString()[..400]}
+                """, status.Visibility, status.Id);
+            });
+        await client.Favourite(status.Id);
         if (profileInfo is null) return;
         var accounts = await client.SearchAccounts(profileInfo.Name);
         if (accounts.Any(a => a.AccountName == profileInfo.Name)) return;
         var bot = await CreateBot(mastodonUrl, tootAppToken, profileInfo, logger);
         await client.Follow(bot.Id, true);
-        await client.Favourite(status.Id);
         await client.PublishStatus($"""
             @{status.Account.AccountName}
             @{profileInfo.Name} を作成しました。
@@ -231,7 +240,7 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
 
     // urlがルートだったら、RSSフィードのURLを取得して、ちがったらそのまま使う
     var rssUrl = url.AbsoluteUri;
-    var feed = await FallbackIfException(() => FeedReader.ReadAsync(rssUrl), _ => { });
+    var feed = await FallbackIfException(() => FeedReader.ReadAsync(rssUrl), _ => Task.CompletedTask);
     if (feed is null)
     {
         rssUrl = document.DocumentNode.SelectSingleNode("//link[@type='application/rss+xml']")
@@ -260,7 +269,7 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
     return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, description, lang, feed.Link, rssUrl, keywords);
 }
 
-static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Action<Exception> fallback)
+static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Func<Exception, Task> fallback)
     where T : notnull
 {
     try
@@ -269,7 +278,7 @@ static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Action<Exceptio
     }
     catch (Exception ex)
     {
-        fallback(ex);
+        await fallback(ex).ConfigureAwait(false);
         return default;
     }
 }
