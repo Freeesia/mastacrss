@@ -1,0 +1,9 @@
+
+# Mastodon API
+
+@baseUrl = {{$dotenv MastodonUrl}}
+@accountId = {{$dotenv AccountId}}
+
+### 固定投稿一覧取得
+GET {{baseUrl}}/api/v1/accounts/{{accountId}}/statuses?pinned&limit=1 HTTP/1.1
+Authorization: Bearer {{$dotenv MonitoringToken}}
