@@ -1,0 +1,5 @@
+root = true
+
+[*.cs]
+dotnet_style_collection_initializer = false
+dotnet_diagnostic.CA2254.severity = none
