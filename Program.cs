@@ -250,6 +250,12 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
         rssUrl = document.DocumentNode.SelectSingleNode("//link[@type='application/rss+xml']")
             ?.GetAttributeValue("href", string.Empty)
             ?? throw new InvalidOperationException("'application/rss+xml' not found");
+        var rssUri = new Uri(rssUrl, UriKind.RelativeOrAbsolute);
+        if (!rssUri.IsAbsoluteUri)
+        {
+            rssUri = new Uri(url, rssUri);
+        }
+        rssUrl = rssUri.AbsoluteUri;
         feed = await FeedReader.ReadAsync(rssUrl);
     }
     var description = feed.Description;
