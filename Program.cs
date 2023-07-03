@@ -28,7 +28,7 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
 {
     var (mastodonUrl, tootAppToken, monitoringToken, configPath) = options.Value;
     var client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken);
-    async void CheckRssUrl(Status? status)
+    async void CheckRssUrl(Status? status, string id)
     {
         if (status is null) return;
         var url = GetUrl(status.Content);
@@ -50,12 +50,6 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
         var accounts = await client.SearchAccounts(profileInfo.Name);
         if (accounts.Any(a => a.AccountName == profileInfo.Name)) return;
         var bot = await CreateBot(mastodonUrl, tootAppToken, profileInfo, logger);
-        await client.Follow(bot.Id, true);
-        await client.PublishStatus($"""
-            @{status.Account.AccountName}
-            @{profileInfo.Name} を作成しました。
-            """, status.Visibility, status.Id);
-        logger.LogInformation($"Created bot account @{profileInfo.Name}");
         var config = await TomatoShriekerConfig.Load(configPath);
         config.Sources.Add(new()
         {
@@ -78,6 +72,16 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
         });
         await config.Save(configPath);
         logger.LogInformation($"Saved config to {configPath}");
+        await client.Follow(bot.Id, true);
+        await client.PublishStatus($"""
+            @{status.Account.AccountName}
+            @{profileInfo.Name} を作成しました。
+            """, status.Visibility, status.Id);
+        await client.PublishStatus($"""
+            新しいbotアカウント {profileInfo.Title} ( @{profileInfo.Name} ) を作成しました。
+            """);
+        await PublishBotListStatus(client, id, profileInfo);
+        logger.LogInformation($"Created bot account @{profileInfo.Name}");
     }
     var me = await client.GetCurrentUser();
     var convs = await client.GetConversations();
@@ -86,13 +90,13 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
         .Where(s => s.Account.Id != me.Id && !(s.Favourited ?? false));
     foreach (var status in statuses)
     {
-        CheckRssUrl(status);
+        CheckRssUrl(status, me.Id);
     }
 
     var ust = client.GetUserStreaming();
     var dm = client.GetDirectMessagesStreaming();
-    ust.OnConversation += (_, e) => CheckRssUrl(e.Conversation.LastStatus);
-    dm.OnConversation += (_, e) => CheckRssUrl(e.Conversation.LastStatus);
+    ust.OnConversation += (_, e) => CheckRssUrl(e.Conversation.LastStatus, me.Id);
+    dm.OnConversation += (_, e) => CheckRssUrl(e.Conversation.LastStatus, me.Id);
     await Task.WhenAll(ust.Start(), dm.Start());
 }
 
@@ -267,6 +271,31 @@ static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
     }
     // rssからtitle, description,link,languageを取得して設定する
     return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, description, lang, feed.Link, rssUrl, keywords);
+}
+
+static async Task PublishBotListStatus(MastodonClient client, string id, ProfileInfo newBot)
+{
+    var statuses = await client.GetAccountStatuses(id, new() { Limit = 1 }, pinned: true);
+    if (statuses is [{ } status])
+    {
+        var document = new HtmlDocument();
+        document.LoadHtml(status.Content);
+        var newContent = $"""
+            {document.DocumentNode.InnerText}
+            ・ {newBot.Title} ( @{newBot.Name} )
+            """;
+        if (newContent.Length < 500)
+        {
+            await client.EditStatus(status.Id, newContent);
+            return;
+        }
+    }
+    var res = await client.PublishStatus($"""
+        botアカウント一覧
+
+        ・ {newBot.Title} ( @{newBot.Name} )
+        """);
+    await client.Pin(res.Id);
 }
 
 static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Func<Exception, Task> fallback)
