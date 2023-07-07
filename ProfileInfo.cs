@@ -6,10 +6,6 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
 {
     public static async Task<ProfileInfo> FetchFromWebsite(Uri url)
     {
-        var name = url.Host.Split('.').OrderByDescending(x => x.Length)
-            .Where(s => s is not "www")
-            .First()
-            .Replace('-', '_');
         using var httpClient = new HttpClient();
         httpClient.BaseAddress = url;
         var document = new HtmlDocument();
@@ -37,6 +33,13 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
             url = new Uri(feed.Link, UriKind.RelativeOrAbsolute);
             document.Load(await httpClient.GetStreamAsync(url));
         }
+        var nameSegs = url.Host.Split('.')
+            .Where(s => s is not "www" and not "com" and not "jp" and not "net" and not "org" and not "co")
+            .Select(s => s.Replace('-', '_'));
+        nameSegs = nameSegs
+            .Concat(url.Segments.Select(s => s.Trim('/')))
+            .Where(s => !string.IsNullOrEmpty(s));
+        var name = string.Join('_', nameSegs);
 
         // apple-touch-iconの画像をダウンロードしてパスを取得する
         string? iconPath = null;

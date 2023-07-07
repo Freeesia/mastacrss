@@ -207,7 +207,6 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
     var info = await ProfileInfo.FetchFromWebsite(uri);
     var client = new MastodonClient(options.Value.MastodonUrl.DnsSafeHost, options.Value.MonitoringToken);
     var me = await client.GetCurrentUser();
-    await client.PublishBotListStatus(me.Id, info);
 }
 
 record AccountCredentials(string access_token, string token_type, string scope, long created_at);
