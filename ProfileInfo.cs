@@ -12,10 +12,31 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
             .Replace('-', '_');
         using var httpClient = new HttpClient();
         httpClient.BaseAddress = url;
-        // ルートHTMLを取得
-        var response = await httpClient.GetAsync("/");
         var document = new HtmlDocument();
-        document.Load(await response.Content.ReadAsStreamAsync());
+
+        // urlがルートだったら、RSSフィードのURLを取得して、ちがったらそのまま使う
+        var rssUrl = url.AbsoluteUri;
+        var feed = await FallbackIfException(() => FeedReader.ReadAsync(rssUrl), _ => Task.CompletedTask);
+        if (feed is null)
+        {
+            var response = await httpClient.GetAsync(url);
+            document.Load(await response.Content.ReadAsStreamAsync());
+            rssUrl = document.DocumentNode.SelectSingleNode("//link[@type='application/rss+xml']")
+                ?.GetAttributeValue("href", string.Empty)
+                ?? throw new InvalidOperationException("'application/rss+xml' not found");
+            var rssUri = new Uri(rssUrl, UriKind.RelativeOrAbsolute);
+            if (!rssUri.IsAbsoluteUri)
+            {
+                rssUri = new Uri(url, rssUri);
+            }
+            rssUrl = rssUri.AbsoluteUri;
+            feed = await FeedReader.ReadAsync(rssUri.AbsoluteUri);
+        }
+        else
+        {
+            url = new Uri(feed.Link, UriKind.RelativeOrAbsolute);
+            document.Load(await httpClient.GetStreamAsync(url));
+        }
 
         // apple-touch-iconの画像をダウンロードしてパスを取得する
         string? iconPath = null;
@@ -45,22 +66,6 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
             iconPath = thumbnailPath;
         }
 
-        // urlがルートだったら、RSSフィードのURLを取得して、ちがったらそのまま使う
-        var rssUrl = url.AbsoluteUri;
-        var feed = await FallbackIfException(() => FeedReader.ReadAsync(rssUrl), _ => Task.CompletedTask);
-        if (feed is null)
-        {
-            rssUrl = document.DocumentNode.SelectSingleNode("//link[@type='application/rss+xml']")
-                ?.GetAttributeValue("href", string.Empty)
-                ?? throw new InvalidOperationException("'application/rss+xml' not found");
-            var rssUri = new Uri(rssUrl, UriKind.RelativeOrAbsolute);
-            if (!rssUri.IsAbsoluteUri)
-            {
-                rssUri = new Uri(url, rssUri);
-            }
-            rssUrl = rssUri.AbsoluteUri;
-            feed = await FeedReader.ReadAsync(rssUri.AbsoluteUri);
-        }
         var description = feed.Description;
         if (string.IsNullOrEmpty(description))
         {
