@@ -1,7 +1,6 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
-using CodeHollow.FeedReader;
 using HtmlAgilityPack;
 using mastacrss;
 using Mastonet;
@@ -10,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PasswordGenerator;
+using static SystemUtility;
 
 const string DescSuffix = """
 
@@ -34,7 +34,7 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
         var url = GetUrl(status.Content);
         if (url is null) return;
         var profileInfo = await FallbackIfException(
-            () => FetchProfileInfoFromWebsite(url),
+            () => ProfileInfo.FetchFromWebsite(url),
             async ex =>
             {
                 logger.LogError(ex, $"Failed to fetch profile info from {url}");
@@ -80,7 +80,7 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
         await client.PublishStatus($"""
             新しいbotアカウント {profileInfo.Title} ( @{profileInfo.Name} ) を作成しました。
             """);
-        await PublishBotListStatus(client, id, profileInfo);
+        await client.PublishBotListStatus(id, profileInfo);
         logger.LogInformation($"Created bot account @{profileInfo.Name}");
     }
     var me = await client.GetCurrentUser();
@@ -200,127 +200,9 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
     }
     return new(account.id, cred.access_token);
 }
-
-static async Task<ProfileInfo> FetchProfileInfoFromWebsite(Uri url)
-{
-    var name = url.Host.Split('.').OrderByDescending(x => x.Length)
-        .Where(s => s is not "www")
-        .First()
-        .Replace('-', '_');
-    using var httpClient = new HttpClient();
-    httpClient.BaseAddress = url;
-    // ルートHTMLを取得
-    var response = await httpClient.GetAsync("/");
-    var document = new HtmlDocument();
-    document.Load(await response.Content.ReadAsStreamAsync());
-
-    // apple-touch-iconの画像をダウンロードしてパスを取得する
-    string? iconPath = null;
-    var appleTouchIconLink = document.DocumentNode.SelectSingleNode("//link[@rel='apple-touch-icon']")?.GetAttributeValue("href", string.Empty);
-    if (!string.IsNullOrEmpty(appleTouchIconLink))
-    {
-        iconPath = await httpClient.DownloadAsync(appleTouchIconLink);
-    }
-
-    // keywordsを取得して、それをタグに設定する
-    var keywords = document.DocumentNode.SelectSingleNode("//meta[@name='keywords']")?.GetAttributeValue("content", string.Empty)
-        .Split(',')
-        .Select(x => x.Trim())
-        .Where(x => !string.IsNullOrEmpty(x))
-        .ToArray() ?? Array.Empty<string>();
-
-    // og:imageの画像をダウンロードしてパスを取得する
-    string? thumbnailPath = null;
-    var imageLink = document.DocumentNode.SelectSingleNode("//meta[@property='og:image']")?.GetAttributeValue("content", string.Empty);
-    imageLink ??= document.DocumentNode.SelectSingleNode("//meta[@name='twitter:image:src']")?.GetAttributeValue("content", string.Empty);
-    if (!string.IsNullOrEmpty(imageLink))
-    {
-        thumbnailPath = await httpClient.DownloadAsync(imageLink);
-    }
-    if (!File.Exists(iconPath) && File.Exists(thumbnailPath))
-    {
-        iconPath = thumbnailPath;
-    }
-
-    // urlがルートだったら、RSSフィードのURLを取得して、ちがったらそのまま使う
-    var rssUrl = url.AbsoluteUri;
-    var feed = await FallbackIfException(() => FeedReader.ReadAsync(rssUrl), _ => Task.CompletedTask);
-    if (feed is null)
-    {
-        rssUrl = document.DocumentNode.SelectSingleNode("//link[@type='application/rss+xml']")
-            ?.GetAttributeValue("href", string.Empty)
-            ?? throw new InvalidOperationException("'application/rss+xml' not found");
-        var rssUri = new Uri(rssUrl, UriKind.RelativeOrAbsolute);
-        if (!rssUri.IsAbsoluteUri)
-        {
-            rssUri = new Uri(url, rssUri);
-        }
-        rssUrl = rssUri.AbsoluteUri;
-        feed = await FeedReader.ReadAsync(rssUrl);
-    }
-    var description = feed.Description;
-    if (string.IsNullOrEmpty(description))
-    {
-        description = (document.DocumentNode.SelectSingleNode("//meta[@name='description']")
-            ?? document.DocumentNode.SelectSingleNode("//meta[@name='og:description']")
-            ?? document.DocumentNode.SelectSingleNode("//meta[@name='twitter:description']"))
-            ?.GetAttributeValue("content", string.Empty) ?? string.Empty;
-    }
-    var lang = feed.Language;
-    if (string.IsNullOrEmpty(lang))
-    {
-        lang = "ja";
-    }
-    else if (lang.Length > 2)
-    {
-        lang = lang[..2];
-    }
-    // rssからtitle, description,link,languageを取得して設定する
-    return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, description, lang, feed.Link, rssUrl, keywords);
-}
-
-static async Task PublishBotListStatus(MastodonClient client, string id, ProfileInfo newBot)
-{
-    var statuses = await client.GetAccountStatuses(id, new() { Limit = 1 }, pinned: true);
-    if (statuses is [{ } status])
-    {
-        var document = new HtmlDocument();
-        document.LoadHtml(status.Content);
-        var newContent = $"""
-            {document.DocumentNode.InnerText}
-            ・ {newBot.Title} ( @{newBot.Name} )
-            """;
-        if (newContent.Length < 500)
-        {
-            await client.EditStatus(status.Id, newContent);
-            return;
-        }
-    }
-    var res = await client.PublishStatus($"""
-        botアカウント一覧
-
-        ・ {newBot.Title} ( @{newBot.Name} )
-        """);
-    await client.Pin(res.Id);
-}
-
-static async Task<T?> FallbackIfException<T>(Func<Task<T>> func, Func<Exception, Task> fallback)
-    where T : notnull
-{
-    try
-    {
-        return await func().ConfigureAwait(false);
-    }
-    catch (Exception ex)
-    {
-        await fallback(ex).ConfigureAwait(false);
-        return default;
-    }
-}
 record AccountCredentials(string access_token, string token_type, string scope, long created_at);
 record AccountInfo(string id);
 record AppCredentials(string client_id, string client_secret, string vapid_key);
-record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Lang, string Link, string Rss, string[] Keywords);
 record BotInfo(string Id, string Token);
 record ConsoleOptions
 {
@@ -332,37 +214,4 @@ record ConsoleOptions
     public void Deconstruct(out Uri mastodonUrl, out string tootAppToken, out string monitoringToken, out string configPath)
         => (mastodonUrl, tootAppToken, monitoringToken, configPath)
         = (this.MastodonUrl, this.TootAppToken, this.MonitoringToken, this.ConfigPath);
-}
-
-static class HttpClientExtensions
-{
-    public static Task<HttpResponseMessage> PatchAsync(this HttpClient client, string requestUri, HttpContent content)
-    {
-        var request = new HttpRequestMessage(new HttpMethod("PATCH"), requestUri)
-        {
-            Content = content
-        };
-
-        return client.SendAsync(request);
-    }
-
-    public static Task<HttpResponseMessage> PatchAsJsonAsync<T>(this HttpClient client, string requestUri, T value)
-        => client.PatchAsync(requestUri, JsonContent.Create(value));
-
-    public static async Task<string?> DownloadAsync(this HttpClient client, string requestUri)
-    {
-        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        try
-        {
-            using var stram = await client.GetStreamAsync(requestUri);
-            using var fileStream = File.Open(path, FileMode.Create);
-            await stram.CopyToAsync(fileStream);
-        }
-        catch (Exception)
-        {
-            File.Delete(path);
-            path = null;
-        }
-        return path;
-    }
 }
