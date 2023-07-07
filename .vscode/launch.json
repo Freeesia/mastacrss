@@ -19,9 +19,35 @@
             "envFile": "${workspaceFolder}/.env",
         },
         {
+            "name": "test",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/bin/Debug/net7.0/mastacrss.dll",
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ConfigPath": "${workspaceFolder}/local.yml"
+            },
+            "envFile": "${workspaceFolder}/.env",
+            "args": [
+                "test",
+                "--uri",
+                "${input:uri}",
+            ]
+        },
+        {
             "name": ".NET Core Attach",
             "type": "coreclr",
             "request": "attach"
         }
-    ]
+    ],
+    "inputs": [
+        {
+            "type": "promptString",
+            "id": "uri",
+            "description": "チェック用のURLを入力してください。",
+        }
+    ],
 }

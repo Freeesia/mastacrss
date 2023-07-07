@@ -22,6 +22,7 @@ var app = ConsoleApp.CreateBuilder(args)
     .ConfigureServices((ctx, services) => services.Configure<ConsoleOptions>(ctx.Configuration))
     .Build();
 app.AddRootCommand(Run);
+app.AddCommand("test", Test);
 await app.RunAsync();
 
 static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
@@ -200,6 +201,15 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
     }
     return new(account.id, cred.access_token);
 }
+
+static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options, Uri uri)
+{
+    var info = await ProfileInfo.FetchFromWebsite(uri);
+    var client = new MastodonClient(options.Value.MastodonUrl.DnsSafeHost, options.Value.MonitoringToken);
+    var me = await client.GetCurrentUser();
+    await client.PublishBotListStatus(me.Id, info);
+}
+
 record AccountCredentials(string access_token, string token_type, string scope, long created_at);
 record AccountInfo(string id);
 record AppCredentials(string client_id, string client_secret, string vapid_key);
