@@ -172,11 +172,22 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
         response.EnsureSuccessStatusCode();
     }
 
+    var display_name = profileInfo.Title;
+    // 公式って入ると勘違いするので抜く。けど「非公式」は残す
+    display_name = Regex.Replace(display_name, "(?<!非)公式", string.Empty);
+    display_name = display_name[..Math.Min(30, display_name.Length)];
+
+    var note = profileInfo.Description;
+    // 公式って入ると勘違いするので抜く。けど「非公式」は残す
+    note = Regex.Replace(note, "(?<!非)公式", string.Empty);
+    note = note[..Math.Min(500 - DescSuffix.Length, note.Length)];
+    note += DescSuffix;
+
     // 4. プロフィール文の設定
     var updateProfileData = new
     {
-        display_name = profileInfo.Title[..Math.Min(30, profileInfo.Title.Length)],
-        note = profileInfo.Description + DescSuffix,
+        display_name,
+        note,
         fields_attributes = new Dictionary<int, object>()
         {
             [0] = new { name = "Website", value = profileInfo.Link, },

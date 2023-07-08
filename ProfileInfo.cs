@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
 using HtmlAgilityPack;
 using static SystemUtility;
@@ -33,13 +34,15 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
             url = new Uri(feed.Link, UriKind.RelativeOrAbsolute);
             document.Load(await httpClient.GetStreamAsync(url));
         }
+
+        // 安全な名前生成
         var nameSegs = url.Host.Split('.')
-            .Where(s => s is not "www" and not "com" and not "jp" and not "net" and not "org" and not "co")
-            .Select(s => s.Replace('-', '_'));
-        nameSegs = nameSegs
+            .Where(s => s is not "www" and not "com" and not "jp" and not "net" and not "org" and not "co" and not "site" and not "info")
             .Concat(url.Segments.Select(s => s.Trim('/')))
             .Where(s => !string.IsNullOrEmpty(s));
         var name = string.Join('_', nameSegs);
+        name = Regex.Replace(name, "[^a-zA-Z0-9_]", string.Empty);
+        name = name[..int.Min(30, name.Length)].ToString();
 
         // apple-touch-iconの画像をダウンロードしてパスを取得する
         string? iconPath = null;
@@ -49,17 +52,31 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
             iconPath = await httpClient.DownloadAsync(appleTouchIconLink);
         }
 
-        // keywordsを取得して、それをタグに設定する
-        var keywords = document.DocumentNode.SelectSingleNode("//meta[@name='keywords']")?.GetAttributeValue("content", string.Empty)
-            .Split(',')
-            .Select(x => x.Trim())
+        // ogpのタグを取得する
+        var tags = document.DocumentNode
+            // dotnetのXPathはends-withが使えないので、containsで代用する
+            .SelectNodes("//meta[starts-with(@property, 'og:') and contains(@property, ':tag')]")?
+            .Select(x => x.GetAttributeValue("content", string.Empty))
             .Where(x => !string.IsNullOrEmpty(x))
             .ToArray() ?? Array.Empty<string>();
-        if (keywords is [{ Length: > 0 } k])
+
+        // og:*:tagがなかったら、keywordsを取得する
+        // keywordsは、カンマ区切りの文字列か、スペース区切りの文字列か、だったり最後に...がついてたりするので低優先
+        if (!tags.Any())
         {
-            keywords = k.Split(' ')
+            // keywordsを取得して、それをタグに設定する
+            tags = document.DocumentNode.SelectSingleNode("//meta[@name='keywords']")?
+                .GetAttributeValue("content", string.Empty)
+                .Split(',')
+                .Select(x => x.Trim())
                 .Where(x => !string.IsNullOrEmpty(x))
-                .ToArray();
+                .ToArray() ?? Array.Empty<string>();
+            if (tags is [{ Length: > 0 } k])
+            {
+                tags = k.Split(' ')
+                    .Where(x => !string.IsNullOrEmpty(x))
+                    .ToArray();
+            }
         }
 
         // og:imageの画像をダウンロードしてパスを取得する
@@ -93,6 +110,6 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
             lang = lang[..2];
         }
         // rssからtitle, description,link,languageを取得して設定する
-        return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, description, lang, feed.Link, rssUrl, keywords);
+        return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, description, lang, feed.Link, rssUrl, tags);
     }
 }
