@@ -15,7 +15,9 @@ static class MastodonClientExtensions
             {
                 node.ParentNode.ReplaceChild(document.CreateTextNode(Environment.NewLine), node);
             }
-            var beforeContent = document.DocumentNode.InnerText;
+            var beforeContent = string.Join(
+                Environment.NewLine + Environment.NewLine,
+                document.DocumentNode.SelectNodes("//p").Select(p => p.InnerText));
             var newContent = $"""
             {beforeContent}
             ・ {newBot.Title} ( @{newBot.Name} )
