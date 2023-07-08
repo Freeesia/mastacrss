@@ -55,6 +55,12 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
             .Select(x => x.Trim())
             .Where(x => !string.IsNullOrEmpty(x))
             .ToArray() ?? Array.Empty<string>();
+        if (keywords is [{ Length: > 0 } k])
+        {
+            keywords = k.Split(' ')
+                .Where(x => !string.IsNullOrEmpty(x))
+                .ToArray();
+        }
 
         // og:imageの画像をダウンロードしてパスを取得する
         string? thumbnailPath = null;
@@ -72,10 +78,10 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
         var description = feed.Description;
         if (string.IsNullOrEmpty(description))
         {
-            description = (document.DocumentNode.SelectSingleNode("//meta[@name='description']")
+            var desc = document.DocumentNode.SelectSingleNode("//meta[@name='description']")
                 ?? document.DocumentNode.SelectSingleNode("//meta[@name='og:description']")
-                ?? document.DocumentNode.SelectSingleNode("//meta[@name='twitter:description']"))
-                ?.GetAttributeValue("content", string.Empty) ?? string.Empty;
+                ?? document.DocumentNode.SelectSingleNode("//meta[@name='twitter:description']");
+            description = desc?.GetAttributeValue("content", string.Empty) ?? string.Empty;
         }
         var lang = feed.Language;
         if (string.IsNullOrEmpty(lang))
