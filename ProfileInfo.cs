@@ -5,6 +5,13 @@ using static SystemUtility;
 
 record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Lang, string Link, string Rss, string[] Keywords)
 {
+    const string DescSuffix = """
+
+
+        このアカウントはRSSフィードの内容を投稿するbotアカウントです。
+        このアカウントの投稿に関するお問い合わせは @owner までお願いします。
+        """;
+
     public static async Task<ProfileInfo> FetchFromWebsite(Uri url)
     {
         using var httpClient = new HttpClient();
@@ -100,6 +107,11 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
                 ?? document.DocumentNode.SelectSingleNode("//meta[@name='twitter:description']");
             description = desc?.GetAttributeValue("content", string.Empty) ?? string.Empty;
         }
+        // 公式って入ると勘違いするので抜く。けど「非公式」は残す
+        description = Regex.Replace(description, "(?<!非)公式", string.Empty);
+        description = description[..Math.Min(500 - DescSuffix.Length, description.Length)];
+        description += DescSuffix;
+
         var lang = feed.Language;
         if (string.IsNullOrEmpty(lang))
         {
@@ -109,7 +121,13 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
         {
             lang = lang[..2];
         }
+
+        var title = feed.Title;
+        // 公式って入ると勘違いするので抜く。けど「非公式」は残す
+        title = Regex.Replace(title, "(?<!非)公式", string.Empty);
+        title = title[..Math.Min(30, title.Length)];
+
         // rssからtitle, description,link,languageを取得して設定する
-        return new ProfileInfo(name, iconPath, thumbnailPath, feed.Title, description, lang, feed.Link, rssUrl, tags);
+        return new ProfileInfo(name, iconPath, thumbnailPath, title, description, lang, feed.Link, rssUrl, tags);
     }
 }

@@ -11,13 +11,6 @@ using Microsoft.Extensions.Options;
 using PasswordGenerator;
 using static SystemUtility;
 
-const string DescSuffix = """
-
-
-このアカウントはRSSフィードの内容を投稿するbotアカウントです。
-このアカウントの投稿に関するお問い合わせは @owner までお願いします。
-""";
-
 var app = ConsoleApp.CreateBuilder(args)
     .ConfigureServices((ctx, services) => services.Configure<ConsoleOptions>(ctx.Configuration))
     .Build();
@@ -79,7 +72,8 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
             @{profileInfo.Name} を作成しました。
             """, status.Visibility, status.Id);
         await client.PublishStatus($"""
-            新しいbotアカウント {profileInfo.Title} ( @{profileInfo.Name} ) を作成しました。
+            新しいbotアカウント {profileInfo.Title} を作成しました。
+            {new Uri(mastodonUrl, $"/@{profileInfo.Name}").AbsoluteUri}
             """);
         await client.PublishBotListStatus(id, profileInfo);
         logger.LogInformation($"Created bot account @{profileInfo.Name}");
@@ -172,22 +166,11 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
         response.EnsureSuccessStatusCode();
     }
 
-    var display_name = profileInfo.Title;
-    // 公式って入ると勘違いするので抜く。けど「非公式」は残す
-    display_name = Regex.Replace(display_name, "(?<!非)公式", string.Empty);
-    display_name = display_name[..Math.Min(30, display_name.Length)];
-
-    var note = profileInfo.Description;
-    // 公式って入ると勘違いするので抜く。けど「非公式」は残す
-    note = Regex.Replace(note, "(?<!非)公式", string.Empty);
-    note = note[..Math.Min(500 - DescSuffix.Length, note.Length)];
-    note += DescSuffix;
-
     // 4. プロフィール文の設定
     var updateProfileData = new
     {
-        display_name,
-        note,
+        display_name = profileInfo.Title,
+        note = profileInfo.Description,
         fields_attributes = new Dictionary<int, object>()
         {
             [0] = new { name = "Website", value = profileInfo.Link, },
