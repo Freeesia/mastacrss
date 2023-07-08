@@ -35,5 +35,4 @@ static class MastodonClientExtensions
         """);
         await client.Pin(res.Id);
     }
-
 }
