@@ -11,20 +11,21 @@ static class MastodonClientExtensions
             var document = new HtmlDocument();
             document.LoadHtml(status.Content);
             // brタグ毎に分割して、改行する
-            foreach (var node in document.DocumentNode.SelectNodes("//br"))
+            var nodes = document.DocumentNode.SelectNodes("//br") ?? Enumerable.Empty<HtmlNode>();
+            foreach (var node in nodes)
             {
                 node.ParentNode.ReplaceChild(document.CreateTextNode(Environment.NewLine), node);
             }
-            var beforeContent = string.Join(
+            var content = string.Join(
                 Environment.NewLine + Environment.NewLine,
                 document.DocumentNode.SelectNodes("//p").Select(p => p.InnerText));
-            var newContent = $"""
-            {beforeContent}
-            ・ {newBot.Title} ( @{newBot.Name} )
-            """;
-            if (newContent.Length < 500)
+            content = $"""
+                {content}
+                ・ {newBot.Title} ( @{newBot.Name} )
+                """;
+            if (content.Length < 500)
             {
-                await client.EditStatus(status.Id, newContent);
+                await client.EditStatus(status.Id, content);
                 return;
             }
         }
