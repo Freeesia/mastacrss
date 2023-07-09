@@ -37,6 +37,8 @@ partial record Source
     public required string Feed { get; init; }
     [YamlMember("remote_keyword")]
     public required RemoteKeyword RemoteKeyword { get; init; }
+    [YamlMember("remote_xpath_tags")]
+    public string? RemoteXpathTags { get; init; }
 }
 [YamlObject]
 partial record RemoteKeyword
