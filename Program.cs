@@ -24,59 +24,60 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
     var client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken);
     async void CheckRssUrl(Status? status, string id)
     {
-        if (status is null) return;
-        var url = GetUrl(status.Content);
-        if (url is null) return;
-        var profileInfo = await FallbackIfException(
-            () => ProfileInfo.FetchFromWebsite(url),
-            async ex =>
-            {
-                logger.LogError(ex, $"Failed to fetch profile info from {url}");
-                await client.PublishStatus($"""
-                @{status.Account.AccountName}
-                フィード情報の取得に失敗しました。別のURLをお試しください。
-                以下、エラー情報です。
-                {ex.ToString()[..400]}
-                """, status.Visibility, status.Id);
-            });
-        await client.Favourite(status.Id);
-        if (profileInfo is null) return;
-        var accounts = await client.SearchAccounts(profileInfo.Name);
-        if (accounts.Any(a => a.AccountName == profileInfo.Name)) return;
-        var bot = await CreateBot(mastodonUrl, tootAppToken, profileInfo, logger);
-        var config = await TomatoShriekerConfig.Load(configPath);
-        config.Sources.Add(new()
+        if (status is null || status.Account.Id == id) return;
+        foreach (var url in GetUrls(status.Content))
         {
-            Id = profileInfo.Name,
-            Source = new()
-            {
-                Feed = profileInfo.Rss,
-                RemoteKeyword = new()
+            var profileInfo = await FallbackIfException(
+                () => ProfileInfo.FetchFromWebsite(url),
+                async ex =>
                 {
-                    Enable = true,
-                    Ignore = null,
-                    ReplaceRules = null,
-                },
-            },
-            Dest = new()
+                    logger.LogError(ex, $"Failed to fetch profile info from {url}");
+                    await client.PublishStatus($"""
+                        @{status.Account.AccountName}
+                        フィード情報の取得に失敗しました。別のURLをお試しください。
+                        以下、エラー情報です。
+                        {ex.ToString()[..400]}
+                        """, status.Visibility, status.Id);
+                });
+            if (profileInfo is null) continue;
+            var accounts = await client.SearchAccounts(profileInfo.Name);
+            if (accounts.Any(a => a.AccountName == profileInfo.Name)) continue;
+            var bot = await CreateBot(mastodonUrl, tootAppToken, profileInfo, logger);
+            var config = await TomatoShriekerConfig.Load(configPath);
+            config.Sources.Add(new()
             {
-                Account = new() { Bot = true },
-                Mastodon = new() { Url = mastodonUrl.AbsoluteUri, Token = bot.Token },
-            }
-        });
-        await config.Save(configPath);
-        logger.LogInformation($"Saved config to {configPath}");
-        await client.Follow(bot.Id, true);
-        await client.PublishStatus($"""
-            @{status.Account.AccountName}
-            @{profileInfo.Name} を作成しました。
-            """, status.Visibility, status.Id);
-        await client.PublishStatus($"""
-            新しいbotアカウント {profileInfo.Title} を作成しました。
-            {new Uri(mastodonUrl, $"/@{profileInfo.Name}").AbsoluteUri}
-            """);
-        await client.PublishBotListStatus(id, profileInfo);
-        logger.LogInformation($"Created bot account @{profileInfo.Name}");
+                Id = profileInfo.Name,
+                Source = new()
+                {
+                    Feed = profileInfo.Rss,
+                    RemoteKeyword = new()
+                    {
+                        Enable = true,
+                        Ignore = null,
+                        ReplaceRules = null,
+                    },
+                },
+                Dest = new()
+                {
+                    Account = new() { Bot = true },
+                    Mastodon = new() { Url = mastodonUrl.AbsoluteUri, Token = bot.Token },
+                }
+            });
+            await config.Save(configPath);
+            logger.LogInformation($"Saved config to {configPath}");
+            await client.Follow(bot.Id, true);
+            await client.PublishStatus($"""
+                @{status.Account.AccountName}
+                @{profileInfo.Name} を作成しました。
+                """, status.Visibility, status.Id);
+            await client.PublishStatus($"""
+                新しいbotアカウント {profileInfo.Title} を作成しました。
+                {new Uri(mastodonUrl, $"/@{profileInfo.Name}").AbsoluteUri}
+                """);
+            await client.PublishBotListStatus(id, profileInfo);
+            logger.LogInformation($"Created bot account @{profileInfo.Name}");
+        }
+        await client.Favourite(status.Id);
     }
     var me = await client.GetCurrentUser();
     var convs = await client.GetConversations();
@@ -95,13 +96,15 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
     await Task.WhenAll(ust.Start(), dm.Start());
 }
 
-static Uri? GetUrl(string? content)
+static IEnumerable<Uri> GetUrls(string? content)
 {
-    if (content is null) return null;
+    if (content is null) return Enumerable.Empty<Uri>();
     var document = new HtmlDocument();
     document.LoadHtml(content);
-    var link = document.DocumentNode.SelectSingleNode("/p/a");
-    return link is null ? null : new(link.Attributes["href"].Value);
+    return document.DocumentNode
+        .SelectNodes("//p/a")
+        .Select(link => new Uri(link.Attributes["href"].Value))
+        .ToArray();
 }
 
 static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, ProfileInfo profileInfo, ILogger logger)
