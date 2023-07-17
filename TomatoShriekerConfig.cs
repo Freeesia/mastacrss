@@ -59,6 +59,7 @@ partial record Dest
 {
     public required AccountDest Account { get; init; }
     public required MastodonDest Mastodon { get; init; }
+    public required IReadOnlyList<string>? Tags { get; init; }
 }
 [YamlObject]
 partial record AccountDest

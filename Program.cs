@@ -59,6 +59,7 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
                 {
                     Account = new() { Bot = true },
                     Mastodon = new() { Url = mastodonUrl.AbsoluteUri, Token = bot.Token },
+                    Tags = new[] { profileInfo.Name }
                 }
             });
             await config.Save(configPath);
@@ -202,6 +203,14 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
     var info = await ProfileInfo.FetchFromWebsite(uri);
     var client = new MastodonClient(options.Value.MastodonUrl.DnsSafeHost, options.Value.MonitoringToken);
     var me = await client.GetCurrentUser();
+    var conf = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
+    var oldSources = conf.Sources.ToArray();
+    conf.Sources.Clear();
+    foreach (var source in oldSources)
+    {
+        conf.Sources.Add(source with { Dest = source.Dest with { Tags = new[] { source.Id } } });
+    }
+    await conf.Save(options.Value.ConfigPath);
 }
 
 record AccountCredentials(string access_token, string token_type, string scope, long created_at);
