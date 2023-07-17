@@ -20,11 +20,20 @@ await app.RunAsync();
 
 static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
 {
-    var (mastodonUrl, tootAppToken, monitoringToken, configPath) = options.Value;
+    var (mastodonUrl, tootAppToken, monitoringToken, configPath, reactiveTag) = options.Value;
     var client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken);
     async void CheckRssUrl(Status? status, string id)
     {
-        if (status is null || status.Account.Id == id) return;
+        // 投稿なければ無視
+        if (status is null) return;
+        // 自分の投稿は無視
+        if (status.Account.Id == id) return;
+        // 反応するハッシュタグがなければ無視
+        if (!status.Tags.OfType<Tag>().Select(t => t.Name).Contains(reactiveTag))
+        {
+            logger.LogInformation($"No reactive tag: {status.Id}");
+            return;
+        }
         foreach (var url in GetUrls(status.Content))
         {
             var profileInfo = await FallbackIfException(
@@ -101,7 +110,7 @@ static IEnumerable<Uri> GetUrls(string? content)
     var document = new HtmlDocument();
     document.LoadHtml(content);
     return document.DocumentNode
-        .SelectNodes("//p/a")
+        .SelectNodes("//p/a[not(contains(@class,'hashtag'))]")
         .Select(link => new Uri(link.Attributes["href"].Value))
         .ToArray();
 }
@@ -223,8 +232,9 @@ record ConsoleOptions
     public required string TootAppToken { get; init; }
     public required string MonitoringToken { get; init; }
     public required string ConfigPath { get; init; }
+    public required string ReactiveTag { get; init; }
 
-    public void Deconstruct(out Uri mastodonUrl, out string tootAppToken, out string monitoringToken, out string configPath)
-        => (mastodonUrl, tootAppToken, monitoringToken, configPath)
-        = (this.MastodonUrl, this.TootAppToken, this.MonitoringToken, this.ConfigPath);
+    public void Deconstruct(out Uri mastodonUrl, out string tootAppToken, out string monitoringToken, out string configPath, out string reactiveTag)
+        => (mastodonUrl, tootAppToken, monitoringToken, configPath, reactiveTag)
+        = (this.MastodonUrl, this.TootAppToken, this.MonitoringToken, this.ConfigPath, this.ReactiveTag);
 }
