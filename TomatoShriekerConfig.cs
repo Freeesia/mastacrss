@@ -23,6 +23,30 @@ partial record TomatoShriekerConfig
         using var stream = File.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
         await stream.WriteAsync(writer.WrittenMemory);
     }
+
+    public void AddSource(string name, string feed, string mastodonUrl, string mastodonToken)
+    {
+        this.Sources.Add(new()
+        {
+            Id = name,
+            Source = new()
+            {
+                Feed = feed,
+                RemoteKeyword = new()
+                {
+                    Enable = true,
+                    Ignore = null,
+                    ReplaceRules = null,
+                },
+            },
+            Dest = new()
+            {
+                Account = new() { Bot = true },
+                Mastodon = new() { Url = mastodonUrl, Token = mastodonToken },
+                Tags = new[] { name }
+            }
+        });
+    }
 }
 [YamlObject]
 partial record SourceInfo

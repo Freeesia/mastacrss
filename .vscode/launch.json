@@ -38,6 +38,27 @@
             ]
         },
         {
+            "name": "setup",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/bin/Debug/net7.0/mastacrss.dll",
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ConfigPath": "${workspaceFolder}/local.yml"
+            },
+            "envFile": "${workspaceFolder}/.env",
+            "args": [
+                "setup",
+                "--uri",
+                "${input:uri}",
+                "--access-token",
+                "${input:access-token}",
+            ]
+        },
+        {
             "name": ".NET Core Attach",
             "type": "coreclr",
             "request": "attach"
@@ -47,7 +68,12 @@
         {
             "type": "promptString",
             "id": "uri",
-            "description": "チェック用のURLを入力してください。",
+            "description": "RSSのURLを入力してください。",
+        },
+        {
+            "type": "promptString",
+            "id": "access-token",
+            "description": "アクセストークンを入力してください。",
         }
     ],
 }

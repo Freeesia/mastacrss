@@ -16,6 +16,7 @@ var app = ConsoleApp.CreateBuilder(args)
     .Build();
 app.AddRootCommand(Run);
 app.AddCommand("test", Test);
+app.AddCommand("setup", Setup);
 await app.RunAsync();
 
 static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
@@ -51,26 +52,7 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
             if (accounts.Any(a => a.AccountName == profileInfo.Name)) continue;
             var bot = await CreateBot(mastodonUrl, tootAppToken, profileInfo, logger);
             var config = await TomatoShriekerConfig.Load(configPath);
-            config.Sources.Add(new()
-            {
-                Id = profileInfo.Name,
-                Source = new()
-                {
-                    Feed = profileInfo.Rss,
-                    RemoteKeyword = new()
-                    {
-                        Enable = true,
-                        Ignore = null,
-                        ReplaceRules = null,
-                    },
-                },
-                Dest = new()
-                {
-                    Account = new() { Bot = true },
-                    Mastodon = new() { Url = mastodonUrl.AbsoluteUri, Token = bot.Token },
-                    Tags = new[] { profileInfo.Name }
-                }
-            });
+            config.AddSource(profileInfo.Name, profileInfo.Rss, mastodonUrl.AbsoluteUri, bot.Token);
             await config.Save(configPath);
             logger.LogInformation($"Saved config to {configPath}");
             await client.Follow(bot.Id, true);
@@ -154,7 +136,12 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
         }
     } while (!response.IsSuccessStatusCode);
     var account = await response.Content.ReadFromJsonAsync<AccountInfo>() ?? throw new Exception("Failed to get account info");
+    await SetupAccount(mstdnClient, profileInfo, logger);
+    return new(account.id, cred.access_token);
+}
 
+static async Task SetupAccount(HttpClient mstdnClient, ProfileInfo profileInfo, ILogger logger)
+{
     // 3. プロフィール画像の設定
     var updateCredentialsUrl = "/api/v1/accounts/update_credentials";
 
@@ -164,7 +151,7 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
         using var avatarFile = File.OpenRead(profileInfo.IconPath);
         var content = new MultipartFormDataContent();
         content.Add(new StreamContent(avatarFile), "avatar", "avatar.png");
-        response = await mstdnClient.PatchAsync(updateCredentialsUrl, content);
+        var response = await mstdnClient.PatchAsync(updateCredentialsUrl, content);
         response.EnsureSuccessStatusCode();
     }
     // og:imageを取得して設定する
@@ -173,38 +160,38 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
         using var headerFile = File.OpenRead(profileInfo.ThumbnailPath);
         var content = new MultipartFormDataContent();
         content.Add(new StreamContent(headerFile), "header", "header.png");
-        response = await mstdnClient.PatchAsync(updateCredentialsUrl, content);
+        var response = await mstdnClient.PatchAsync(updateCredentialsUrl, content);
         response.EnsureSuccessStatusCode();
     }
 
     // 4. プロフィール文の設定
-    var updateProfileData = new
     {
-        display_name = profileInfo.Title,
-        note = profileInfo.Description,
-        fields_attributes = new Dictionary<int, object>()
+        var response = await mstdnClient.PatchAsJsonAsync(updateCredentialsUrl, new
         {
-            [0] = new { name = "Website", value = profileInfo.Link, },
-            [1] = new { name = "RSS", value = profileInfo.Rss, },
-        },
-        bot = true,
-        discoverable = true,
-        source = new { language = profileInfo.Lang },
-    };
-    response = await mstdnClient.PatchAsJsonAsync(updateCredentialsUrl, updateProfileData);
-    response.EnsureSuccessStatusCode();
+            display_name = profileInfo.Title,
+            note = profileInfo.Description,
+            fields_attributes = new Dictionary<int, object>()
+            {
+                [0] = new { name = "Website", value = profileInfo.Link, },
+                [1] = new { name = "RSS", value = profileInfo.Rss, },
+            },
+            bot = true,
+            discoverable = true,
+            source = new { language = profileInfo.Lang },
+        });
+        response.EnsureSuccessStatusCode();
+    }
 
     // 5. タグの設定
     var safe = new Regex(@"[\s\*_\-\[\]\(\)]");
     foreach (var keyword in profileInfo.Keywords.Take(10))
     {
-        response = await mstdnClient.PostAsJsonAsync("/api/v1/featured_tags", new { name = safe.Replace(keyword, "_") });
+        var response = await mstdnClient.PostAsJsonAsync("/api/v1/featured_tags", new { name = safe.Replace(keyword, "_") });
         if (!response.IsSuccessStatusCode)
         {
             logger.LogWarning($"Failed to add tag: {keyword}");
         }
     }
-    return new(account.id, cred.access_token);
 }
 
 static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options, Uri uri)
@@ -220,6 +207,20 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
         conf.Sources.Add(source with { Dest = source.Dest with { Tags = new[] { source.Id } } });
     }
     await conf.Save(options.Value.ConfigPath);
+}
+
+static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> options, Uri uri, string accessToken)
+{
+    var info = await ProfileInfo.FetchFromWebsite(uri);
+    var client = new HttpClient()
+    {
+        BaseAddress = options.Value.MastodonUrl,
+        DefaultRequestHeaders = { Authorization = new("Bearer", accessToken) }
+    };
+    await SetupAccount(client, info, logger);
+    var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
+    config.AddSource(info.Name, info.Rss, options.Value.MastodonUrl.AbsoluteUri, accessToken);
+    await config.Save(options.Value.ConfigPath);
 }
 
 record AccountCredentials(string access_token, string token_type, string scope, long created_at);
