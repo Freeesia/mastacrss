@@ -115,8 +115,20 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
         agreement = true,
         locale = "ja"
     };
-    var response = await mstdnClient.PostAsJsonAsync("/api/v1/accounts", createAccountData);
-    response.EnsureSuccessStatusCode();
+    HttpResponseMessage response;
+    do
+    {
+        response = await mstdnClient.PostAsJsonAsync("/api/v1/accounts", createAccountData);
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            logger.LogInformation("Too many create requests. Waiting for 30 minutes...");
+            await Task.Delay(TimeSpan.FromMinutes(30));
+        }
+        else
+        {
+            response.EnsureSuccessStatusCode();
+        }
+    } while (!response.IsSuccessStatusCode);
     var cred = await response.Content.ReadFromJsonAsync<AccountCredentials>() ?? throw new Exception("Failed to create account");
     mstdnClient.DefaultRequestHeaders.Authorization = new("Bearer", cred.access_token);
     logger.LogInformation($"Created account @{createAccountData.username}");
