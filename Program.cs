@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
@@ -209,17 +209,18 @@ static async Task SetupAccount(HttpClient mstdnClient, ProfileInfo profileInfo, 
 
 static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options, Uri uri)
 {
-    var info = await ProfileInfo.FetchFromWebsite(uri);
+    // var info = await ProfileInfo.FetchFromWebsite(uri);
     var client = new MastodonClient(options.Value.MastodonUrl.DnsSafeHost, options.Value.MonitoringToken);
     var me = await client.GetCurrentUser();
-    var conf = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
-    var oldSources = conf.Sources.ToArray();
-    conf.Sources.Clear();
-    foreach (var source in oldSources)
+    var convs = await client.GetConversations();
+    var urls = convs.Select(c => c.LastStatus)
+        .OfType<Status>()
+        .Where(s => s.Account.Id != me.Id)
+        .SelectMany(s => GetUrls(s.Content));
+    foreach (var url in urls)
     {
-        conf.Sources.Add(source with { Dest = source.Dest with { Tags = new[] { source.Id } } });
+        logger.LogInformation(url.ToString());
     }
-    await conf.Save(options.Value.ConfigPath);
 }
 
 static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> options, Uri uri, string accessToken)
