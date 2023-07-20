@@ -57,14 +57,15 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
             logger.LogInformation($"Saved config to {configPath}");
             await client.Follow(bot.Id, true);
             await client.PublishStatus($"""
-                @{status.Account.AccountName}
-                @{profileInfo.Name} を作成しました。
-                """, status.Visibility, status.Id);
-            await client.PublishStatus($"""
                 新しいbotアカウント {profileInfo.Title} を作成しました。
                 {new Uri(mastodonUrl, $"/@{profileInfo.Name}").AbsoluteUri}
                 """);
             await client.PublishBotListStatus(id, profileInfo);
+            logger.LogInformation($"rep: @{status.Account.AccountName}, bot: @{profileInfo.Name}, repId: {status.Id}");
+            await client.PublishStatus($"""
+                @{status.Account.AccountName}
+                @{profileInfo.Name} を作成しました。
+                """, status.Visibility, status.Id);
             logger.LogInformation($"Created bot account @{profileInfo.Name}");
         }
         await client.Favourite(status.Id);
