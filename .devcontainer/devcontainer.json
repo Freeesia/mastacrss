@@ -21,7 +21,12 @@
 			"extensions": [
 				"ms-dotnettools.csharp",
 				"patcx.vscode-nuget-gallery",
-				"redhat.vscode-yaml"
+				"redhat.vscode-yaml",
+				"ms-dotnettools.vscode-dotnet-runtime",
+				"github.vscode-github-actions",
+				"GitHub.vscode-pull-request-github",
+				"VisualStudioExptTeam.vscodeintellicode",
+				"humao.rest-client"
 			]
 		}
 	}
