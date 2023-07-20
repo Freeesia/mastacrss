@@ -92,7 +92,8 @@ static IEnumerable<Uri> GetUrls(string? content)
     var document = new HtmlDocument();
     document.LoadHtml(content);
     return document.DocumentNode
-        .SelectNodes("//p/a[not(contains(@class,'hashtag'))]")
+        .SelectNodes("//p/a[not(contains(@class,'hashtag')) or not(contains(@class,'mention'))]")
+        .Where(n => !n.InnerText.StartsWith('#') && !n.InnerText.StartsWith('@'))
         .Select(link => new Uri(link.Attributes["href"].Value))
         .ToArray();
 }
