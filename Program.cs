@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
@@ -139,7 +139,7 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
     do
     {
         logger.LogInformation("Waiting for account creation...");
-        await Task.Delay(10000);
+        await Task.Delay(TimeSpan.FromMinutes(1));
         response = await mstdnClient.GetAsync("/api/v1/accounts/verify_credentials");
         // 403が返ってきたら、まだアカウントが作成されていないので、10秒待って再度試行する
         if (response.StatusCode != HttpStatusCode.Forbidden)
