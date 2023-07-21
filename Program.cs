@@ -12,7 +12,8 @@ using PasswordGenerator;
 using static SystemUtility;
 
 var app = ConsoleApp.CreateBuilder(args)
-    .ConfigureServices((ctx, services) => services.Configure<ConsoleOptions>(ctx.Configuration))
+    .ConfigureServices((c, s) => s.Configure<ConsoleOptions>(c.Configuration))
+    .ConfigureLogging((c, l) => l.AddConfiguration(c.Configuration).AddSentry())
     .Build();
 app.AddRootCommand(Run);
 app.AddCommand("test", Test);
@@ -93,10 +94,12 @@ static IEnumerable<Uri> GetUrls(string? content)
     var document = new HtmlDocument();
     document.LoadHtml(content);
     return document.DocumentNode
-        .SelectNodes("//p/a[not(contains(@class,'hashtag')) or not(contains(@class,'mention'))]")
+        .SelectNodes("//p/a[not(contains(@class,'hashtag')) or not(contains(@class,'mention'))]")?
+        .OfType<HtmlNode>()
         .Where(n => !n.InnerText.StartsWith('#') && !n.InnerText.StartsWith('@'))
         .Select(link => new Uri(link.Attributes["href"].Value))
-        .ToArray();
+        .ToArray()
+        ?? Enumerable.Empty<Uri>();
 }
 
 static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, ProfileInfo profileInfo, ILogger logger)
