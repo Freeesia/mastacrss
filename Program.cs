@@ -143,11 +143,12 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
         logger.LogInformation("Waiting for account creation...");
         await Task.Delay(TimeSpan.FromMinutes(1));
         response = await mstdnClient.GetAsync("/api/v1/accounts/verify_credentials");
-        // 403が返ってきたら、まだアカウントが作成されていないので、10秒待って再度試行する
-        if (response.StatusCode != HttpStatusCode.Forbidden)
+        // 403,422が返ってきたら、まだアカウントが作成されていないので、1分待って再度試行する
+        if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.UnprocessableEntity)
         {
-            response.EnsureSuccessStatusCode();
+            continue;
         }
+        response.EnsureSuccessStatusCode();
     } while (!response.IsSuccessStatusCode);
     var account = await response.Content.ReadFromJsonAsync<AccountInfo>() ?? throw new Exception("Failed to get account info");
     await SetupAccount(mstdnClient, profileInfo, logger);
