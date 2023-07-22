@@ -71,7 +71,7 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options,
 
                 var token = await CreateBot(factory, tootAppToken, profileInfo, logger);
                 accountInfo = new(profileInfo.Name, token, status.Id);
-                await accountContext.AddAsync(accountInfo);
+                await accountContext.AddAsNoTracking(accountInfo);
                 await accountContext.SaveChangesAsync();
             }
             var accessToken = accountInfo.AccessToken;
