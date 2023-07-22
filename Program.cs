@@ -1,18 +1,30 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
 using mastacrss;
 using Mastonet;
 using Mastonet.Entities;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PasswordGenerator;
 using static SystemUtility;
 
+const string Mastodon = nameof(Mastodon);
+
 var app = ConsoleApp.CreateBuilder(args)
-    .ConfigureServices((c, s) => s.Configure<ConsoleOptions>(c.Configuration))
+    .ConfigureServices(
+        (c, s) => s.Configure<ConsoleOptions>(c.Configuration)
+            .AddDbContext<AccountContext>(op => op.UseSqlite(c.Configuration.GetConnectionString("DefaultConnection")))
+            .AddHttpClient(Mastodon, (s, c) =>
+            {
+                var op = s.GetRequiredService<IOptions<ConsoleOptions>>();
+                c.BaseAddress = op.Value.MastodonUrl;
+            }))
     .ConfigureLogging((c, l) => l.AddConfiguration(c.Configuration).AddSentry())
     .Build();
 app.AddRootCommand(Run);
@@ -20,16 +32,17 @@ app.AddCommand("test", Test);
 app.AddCommand("setup", Setup);
 await app.RunAsync();
 
-static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
+static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options, AccountContext accountContext, IHttpClientFactory factory)
 {
     var (mastodonUrl, tootAppToken, monitoringToken, configPath, reactiveTag) = options.Value;
-    var client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken);
-    async void CheckRssUrl(Status? status, string id)
+    var client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken, factory.CreateClient());
+    await accountContext.Database.EnsureCreatedAsync();
+    async void CheckRssUrl(Status? status, string myId)
     {
         // 投稿なければ無視
         if (status is null) return;
         // 自分の投稿は無視
-        if (status.Account.Id == id) return;
+        if (status.Account.Id == myId) return;
         // 反応するハッシュタグがなければ無視
         if (!status.Tags.OfType<Tag>().Select(t => t.Name).Contains(reactiveTag))
         {
@@ -49,25 +62,65 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options)
                         """, status.Visibility, status.Id);
                 });
             if (profileInfo is null) continue;
-            var accounts = await client.SearchAccounts(profileInfo.Name);
-            if (accounts.Any(a => a.AccountName == profileInfo.Name)) continue;
-            var bot = await CreateBot(mastodonUrl, tootAppToken, profileInfo, logger);
+
+            if (await accountContext.AccountInfos.FindAsync(profileInfo.Name) is not { } accountInfo)
+            {
+                // 作成中じゃないけどアカウントが存在する場合は作成済みなので抜ける
+                var accounts = await client.SearchAccounts(profileInfo.Name);
+                if (accounts.Any(a => a.AccountName == profileInfo.Name)) continue;
+
+                var token = await CreateBot(factory, tootAppToken, profileInfo, logger);
+                accountInfo = new(profileInfo.Name, token, status.Id);
+                await accountContext.AddAsync(accountInfo);
+                await accountContext.SaveChangesAsync();
+            }
+            var accessToken = accountInfo.AccessToken;
+            if (accountInfo is not { Id: { } botId })
+            {
+                botId = await WaitVerifiy(factory, accessToken, logger);
+                accountContext.UpdateAsNoTracking(accountInfo with { Id = botId });
+                await accountContext.SaveChangesAsync();
+            }
+            if (!accountInfo.Setuped)
+            {
+                await SetupAccount(factory, accessToken, profileInfo, logger);
+                accountContext.UpdateAsNoTracking(accountInfo with { Setuped = true });
+                await accountContext.SaveChangesAsync();
+            }
+
             var config = await TomatoShriekerConfig.Load(configPath);
-            config.AddSource(profileInfo.Name, profileInfo.Rss, mastodonUrl.AbsoluteUri, bot.Token);
-            await config.Save(configPath);
-            logger.LogInformation($"Saved config to {configPath}");
-            await client.Follow(bot.Id, true);
-            await client.PublishStatus($"""
-                新しいbotアカウント {profileInfo.Title} を作成しました。
-                {new Uri(mastodonUrl, $"/@{profileInfo.Name}").AbsoluteUri}
-                """);
-            await client.PublishBotListStatus(id, profileInfo);
+            if (!config.Sources.Any(s => s.Id == profileInfo.Name))
+            {
+                config.AddSource(profileInfo.Name, profileInfo.Rss, mastodonUrl.AbsoluteUri, accessToken);
+                await config.Save(configPath);
+                logger.LogInformation($"Saved config to {configPath}");
+            }
+
+
+            await client.Follow(botId, true);
+            if (!accountInfo.Notified)
+            {
+                await client.PublishStatus($"""
+                    新しいbotアカウント {profileInfo.Title} を作成しました。
+                    {new Uri(mastodonUrl, $"/@{profileInfo.Name}").AbsoluteUri}
+                    """);
+                accountContext.UpdateAsNoTracking(accountInfo with { Notified = true });
+                await accountContext.SaveChangesAsync();
+            }
+            // await client.PublishBotListStatus(botId, profileInfo);
             logger.LogInformation($"rep: @{status.Account.AccountName}, bot: @{profileInfo.Name}, repId: {status.Id}");
-            await client.PublishStatus($"""
-                @{status.Account.AccountName}
-                @{profileInfo.Name} を作成しました。
-                """, status.Visibility, status.Id);
+            if (!accountInfo.Replied)
+            {
+                await client.PublishStatus($"""
+                    @{status.Account.AccountName}
+                    @{profileInfo.Name} を作成しました。
+                    """, status.Visibility, status.Id);
+                accountContext.UpdateAsNoTracking(accountInfo with { Replied = true });
+                await accountContext.SaveChangesAsync();
+            }
             logger.LogInformation($"Created bot account @{profileInfo.Name}");
+            accountContext.Remove(accountInfo);
+            await accountContext.SaveChangesAsync();
         }
         await client.Favourite(status.Id);
     }
@@ -102,13 +155,10 @@ static IEnumerable<Uri> GetUrls(string? content)
         ?? Enumerable.Empty<Uri>();
 }
 
-static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, ProfileInfo profileInfo, ILogger logger)
+static async Task<string> CreateBot(IHttpClientFactory factory, string appAccessToken, ProfileInfo profileInfo, ILogger logger)
 {
-    using var mstdnClient = new HttpClient()
-    {
-        BaseAddress = mastodonUrl,
-        DefaultRequestHeaders = { Authorization = new("Bearer", appAccessToken) }
-    };
+    using var mstdnClient = factory.CreateClient(Mastodon);
+    mstdnClient.DefaultRequestHeaders.Authorization = new("Bearer", appAccessToken);
     // 1. アカウントの作成
     var pwd = new Password(32);
     // name = new Password(6).IncludeLowercase().Next();
@@ -134,32 +184,39 @@ static async Task<BotInfo> CreateBot(Uri mastodonUrl, string appAccessToken, Pro
             response.EnsureSuccessStatusCode();
         }
     } while (!response.IsSuccessStatusCode);
-    var cred = await response.Content.ReadFromJsonAsync<AccountCredentials>() ?? throw new Exception("Failed to create account");
+    var cred = await response.Content.ReadFromJsonAsync<Token>() ?? throw new Exception("Failed to create account");
     mstdnClient.DefaultRequestHeaders.Authorization = new("Bearer", cred.access_token);
     logger.LogInformation($"Created account @{createAccountData.username}");
     logger.LogInformation($"email: {createAccountData.email}");
     logger.LogInformation($"password: {createAccountData.password}");
     logger.LogInformation($"token: {cred.access_token}");
-
-    do
-    {
-        logger.LogInformation("Waiting for account creation...");
-        await Task.Delay(TimeSpan.FromMinutes(1));
-        response = await mstdnClient.GetAsync("/api/v1/accounts/verify_credentials");
-        // 403,422が返ってきたら、まだアカウントが作成されていないので、1分待って再度試行する
-        if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.UnprocessableEntity)
-        {
-            continue;
-        }
-        response.EnsureSuccessStatusCode();
-    } while (!response.IsSuccessStatusCode);
-    var account = await response.Content.ReadFromJsonAsync<AccountInfo>() ?? throw new Exception("Failed to get account info");
-    await SetupAccount(mstdnClient, profileInfo, logger);
-    return new(account.id, cred.access_token);
+    return cred.access_token;
 }
 
-static async Task SetupAccount(HttpClient mstdnClient, ProfileInfo profileInfo, ILogger logger)
+static async Task<string> WaitVerifiy(IHttpClientFactory factory, string accessToken, ILogger logger)
 {
+    using var client = factory.CreateClient(Mastodon);
+    client.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);
+    var response = await client.GetAsync("/api/v1/accounts/verify_credentials");
+    while (!response.IsSuccessStatusCode)
+    {
+        // 403,422が返ってきたら、まだアカウントが作成されていないので、1分待って再度試行する
+        if (response.StatusCode is not HttpStatusCode.Forbidden and not HttpStatusCode.UnprocessableEntity)
+        {
+            response.EnsureSuccessStatusCode();
+        }
+        logger.LogInformation("Waiting for account creation...");
+        await Task.Delay(TimeSpan.FromMinutes(1));
+        response = await client.GetAsync("/api/v1/accounts/verify_credentials");
+    }
+    var account = await response.Content.ReadFromJsonAsync<CredentialAccount>() ?? throw new Exception("Failed to get account info");
+    return account.id;
+}
+
+static async Task SetupAccount(IHttpClientFactory factory, string accessToken, ProfileInfo profileInfo, ILogger logger)
+{
+    using var client = factory.CreateClient(Mastodon);
+    client.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);
     // 3. プロフィール画像の設定
     var updateCredentialsUrl = "/api/v1/accounts/update_credentials";
 
@@ -169,7 +226,7 @@ static async Task SetupAccount(HttpClient mstdnClient, ProfileInfo profileInfo, 
         using var avatarFile = File.OpenRead(profileInfo.IconPath);
         var content = new MultipartFormDataContent();
         content.Add(new StreamContent(avatarFile), "avatar", "avatar.png");
-        var response = await mstdnClient.PatchAsync(updateCredentialsUrl, content);
+        var response = await client.PatchAsync(updateCredentialsUrl, content);
         response.EnsureSuccessStatusCode();
     }
     // og:imageを取得して設定する
@@ -178,13 +235,13 @@ static async Task SetupAccount(HttpClient mstdnClient, ProfileInfo profileInfo, 
         using var headerFile = File.OpenRead(profileInfo.ThumbnailPath);
         var content = new MultipartFormDataContent();
         content.Add(new StreamContent(headerFile), "header", "header.png");
-        var response = await mstdnClient.PatchAsync(updateCredentialsUrl, content);
+        var response = await client.PatchAsync(updateCredentialsUrl, content);
         response.EnsureSuccessStatusCode();
     }
 
     // 4. プロフィール文の設定
     {
-        var response = await mstdnClient.PatchAsJsonAsync(updateCredentialsUrl, new
+        var response = await client.PatchAsJsonAsync(updateCredentialsUrl, new
         {
             display_name = profileInfo.Title,
             note = profileInfo.Description,
@@ -204,7 +261,7 @@ static async Task SetupAccount(HttpClient mstdnClient, ProfileInfo profileInfo, 
     var safe = new Regex(@"[\s\*_\-\[\]\(\)]");
     foreach (var keyword in profileInfo.Keywords.Take(10))
     {
-        var response = await mstdnClient.PostAsJsonAsync("/api/v1/featured_tags", new { name = safe.Replace(keyword, "_") });
+        var response = await client.PostAsJsonAsync("/api/v1/featured_tags", new { name = safe.Replace(keyword, "_") });
         if (!response.IsSuccessStatusCode)
         {
             logger.LogWarning($"Failed to add tag: {keyword}");
@@ -212,9 +269,12 @@ static async Task SetupAccount(HttpClient mstdnClient, ProfileInfo profileInfo, 
     }
 }
 
-static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options, Uri uri)
+static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options, AccountContext accountContext, Uri uri)
 {
     // var info = await ProfileInfo.FetchFromWebsite(uri);
+    await accountContext.Database.EnsureCreatedAsync();
+    await accountContext.AccountInfos.AddAsync(new("hoge", "fuga", "piyo"));
+    await accountContext.SaveChangesAsync();
     var client = new MastodonClient(options.Value.MastodonUrl.DnsSafeHost, options.Value.MonitoringToken);
     var me = await client.GetCurrentUser();
     var convs = await client.GetConversations();
@@ -228,22 +288,17 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
     }
 }
 
-static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> options, Uri uri, string accessToken)
+static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, Uri uri, string accessToken)
 {
     var info = await ProfileInfo.FetchFromWebsite(uri);
-    var client = new HttpClient()
-    {
-        BaseAddress = options.Value.MastodonUrl,
-        DefaultRequestHeaders = { Authorization = new("Bearer", accessToken) }
-    };
-    await SetupAccount(client, info, logger);
+    await SetupAccount(factory, accessToken, info, logger);
     var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
     config.AddSource(info.Name, info.Rss, options.Value.MastodonUrl.AbsoluteUri, accessToken);
     await config.Save(options.Value.ConfigPath);
 }
 
-record AccountCredentials(string access_token, string token_type, string scope, long created_at);
-record AccountInfo(string id);
+record Token(string access_token, string token_type, string scope, long created_at);
+record CredentialAccount(string id);
 record AppCredentials(string client_id, string client_secret, string vapid_key);
 record BotInfo(string Id, string Token);
 record ConsoleOptions
