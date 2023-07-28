@@ -6,7 +6,7 @@ RUN dotnet publish -c Release -o out -r linux-x64
 # Build runtime image
 FROM mcr.microsoft.com/dotnet/runtime:7.0-alpine
 WORKDIR /app
-RUN apk add --no-cache supervisor
+RUN apk add --no-cache supervisor libc6-compat
 
 # supervisord.confをコピー
 COPY docker/supervisord.conf /etc/supervisord.conf
