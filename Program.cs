@@ -100,10 +100,16 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options,
             await client.Follow(botId, true);
             if (!accountInfo.Notified)
             {
+                var mediaIds = new List<string>(1);
+                if ((profileInfo.IconPath ?? profileInfo.ThumbnailPath) is { } path)
+                {
+                    using var stream = File.OpenRead(path);
+                    var m = await client.UploadMedia(stream);
+                    mediaIds.Add(m.Id);
+                }
                 await client.PublishStatus($"""
-                    新しいbotアカウント {profileInfo.Title} を作成しました。
-                    {new Uri(mastodonUrl, $"/@{profileInfo.Name}").AbsoluteUri}
-                    """);
+                    新しいbotアカウント {profileInfo.Title}(@{profileInfo.Name}) を作成しました。
+                    """, mediaIds: mediaIds);
                 accountContext.UpdateAsNoTracking(accountInfo with { Notified = true });
                 await accountContext.SaveChangesAsync();
             }
@@ -119,7 +125,8 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options,
                 await accountContext.SaveChangesAsync();
             }
             logger.LogInformation($"Created bot account @{profileInfo.Name}");
-            accountContext.Remove(accountInfo);
+            var entity = accountContext.Remove(accountInfo);
+            await entity.ReloadAsync();
             await accountContext.SaveChangesAsync();
         }
         await client.Favourite(status.Id);
