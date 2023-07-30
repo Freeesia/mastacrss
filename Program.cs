@@ -67,7 +67,16 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options,
             {
                 // 作成中じゃないけどアカウントが存在する場合は作成済みなので抜ける
                 var accounts = await client.SearchAccounts(profileInfo.Name);
-                if (accounts.Any(a => a.AccountName == profileInfo.Name)) continue;
+                if (accounts.Any(a => a.AccountName == profileInfo.Name))
+                {
+                    logger.LogInformation($"Account @{profileInfo.Name} already exists. RSS: {profileInfo.Rss}");
+                    await client.PublishStatus($"""
+                        @{status.Account.AccountName}
+                        依頼されたアカウントは @{profileInfo.Name} として作成済みです。
+                        同一サイトで複数のRSSが存在する場合は個別に対応するので、しばらくお待ちください。
+                        """, status.Visibility, status.Id);
+                    continue;
+                }
 
                 var token = await CreateBot(factory, tootAppToken, profileInfo, logger);
                 accountInfo = new(profileInfo.Name, token, status.Id);
