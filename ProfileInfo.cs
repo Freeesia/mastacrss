@@ -47,7 +47,10 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
 
         // 安全な名前生成
         var nameSegs = url.Host.Split('.')
-            .Where(s => s is not "www" and not "com" and not "jp" and not "net" and not "org" and not "co" and not "site" and not "info")
+            // www: 汎用的なサブドメイン
+            // m: モバイルサイト用サブドメイン(YouTubeとか)
+            // com, jp, net, org, site, info: 汎用的なトップレベルドメイン
+            .Where(s => s is not "www" and not "com" and not "jp" and not "net" and not "org" and not "co" and not "site" and not "info" and not "m")
             .Concat(url.Segments.Select(s => s.Trim('/')))
             .Where(s => !string.IsNullOrEmpty(s));
         var name = string.Join('_', nameSegs);
