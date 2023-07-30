@@ -3,7 +3,7 @@ using CodeHollow.FeedReader;
 using HtmlAgilityPack;
 using static SystemUtility;
 
-record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Lang, string Link, string Rss, string[] Keywords)
+partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Lang, string Link, string Rss, string[] Keywords)
 {
     const string DescSuffix = """
 
@@ -11,6 +11,9 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
         このアカウントはRSSフィードの内容を投稿するbotアカウントです。
         このアカウントの投稿に関するお問い合わせは @owner までお願いします。
         """;
+
+    [GeneratedRegex("(?<!非)(公式|オフィシャル|\\sofficial)", RegexOptions.IgnoreCase)]
+    private static partial Regex OfficialRegex();
 
     public static async Task<ProfileInfo> FetchFromWebsite(Uri url)
     {
@@ -106,9 +109,11 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
                 ?? document.DocumentNode.SelectSingleNode("//meta[@name='og:description']")
                 ?? document.DocumentNode.SelectSingleNode("//meta[@name='twitter:description']");
             description = desc?.GetAttributeValue("content", string.Empty) ?? string.Empty;
+            // HTMLのエスケープを除去する
+            description = HtmlEntity.DeEntitize(description);
         }
         // 公式って入ると勘違いするので抜く。けど「非公式」は残す
-        description = Regex.Replace(description, "(?<!非)公式", string.Empty);
+        description = OfficialRegex().Replace(description, string.Empty);
         description = description[..Math.Min(500 - DescSuffix.Length, description.Length)];
         description += DescSuffix;
 
@@ -124,7 +129,7 @@ record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string 
 
         var title = feed.Title;
         // 公式って入ると勘違いするので抜く。けど「非公式」は残す
-        title = Regex.Replace(title, "(?<!非)公式", string.Empty);
+        title = OfficialRegex().Replace(title, string.Empty);
         title = title[..Math.Min(30, title.Length)];
 
         // rssからtitle, description,link,languageを取得して設定する
