@@ -1,5 +1,7 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
+using CodeHollow.FeedReader.Feeds;
 using HtmlAgilityPack;
 using static SystemUtility;
 
@@ -26,8 +28,7 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
         var feed = await FallbackIfException(() => FeedReader.ReadAsync(rssUrl), _ => Task.CompletedTask);
         if (feed is null)
         {
-            var response = await httpClient.GetAsync(url);
-            document.Load(await response.Content.ReadAsStreamAsync());
+            document.Load(await httpClient.GetStreamAsync(url));
             rssUrl = document.DocumentNode.SelectSingleNode("//link[@type='application/rss+xml']")
                 ?.GetAttributeValue("href", string.Empty)
                 ?? throw new InvalidOperationException("'application/rss+xml' not found");
@@ -41,17 +42,34 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
         }
         else
         {
-            url = new Uri(feed.Link, UriKind.RelativeOrAbsolute);
-            document.Load(await httpClient.GetStreamAsync(url));
+            document.Load(await httpClient.GetStreamAsync(feed.Link));
+        }
+
+        // プロフィールに記載するWebサイトのURL
+        var siteUrl = new Uri(feed.Link, UriKind.RelativeOrAbsolute);
+        if (!siteUrl.IsAbsoluteUri)
+        {
+            siteUrl = new Uri(url, siteUrl);
+        }
+
+        // YouTubeのチャンネルの場合、特殊処理する
+        if (url.Host.EndsWith("youtube.com") && feed.SpecificFeed is AtomFeed atom)
+        {
+            var channelUrl = atom.Links.FirstOrDefault(x => x.Relation != "self")?.Href ?? throw new InvalidOperationException("channel url not found");
+            document.Load(await httpClient.GetStreamAsync(channelUrl));
+            var script = document.DocumentNode.SelectSingleNode("//script[contains(text(), 'ytInitialData')]")?.InnerText ?? throw new InvalidOperationException("ytInitialData not found");
+            var json = Regex.Match(script, @"(?<=ytInitialData\s*=\s*)(?<json>{.*})(?=;)", RegexOptions.Singleline).Groups["json"].Value;
+            var handleUrl = JsonDocument.Parse(json).SelectElement("$.metadata.channelMetadataRenderer.vanityChannelUrl")?.GetString() ?? throw new InvalidOperationException("vanityChannelUrl not found");
+            siteUrl = new Uri(handleUrl, UriKind.Absolute);
         }
 
         // 安全な名前生成
-        var nameSegs = url.Host.Split('.')
+        var nameSegs = siteUrl.Host.Split('.')
             // www: 汎用的なサブドメイン
             // m: モバイルサイト用サブドメイン(YouTubeとか)
             // com, jp, net, org, site, info: 汎用的なトップレベルドメイン
             .Where(s => s is not "www" and not "com" and not "jp" and not "net" and not "org" and not "co" and not "site" and not "info" and not "m")
-            .Concat(url.Segments.Select(s => s.Trim('/')))
+            .Concat(siteUrl.Segments.Select(s => s.Trim('/')))
             .Where(s => !string.IsNullOrEmpty(s));
         var name = string.Join('_', nameSegs);
         name = Regex.Replace(name, "[^a-zA-Z0-9_]", string.Empty);
@@ -136,6 +154,6 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
         title = title[..Math.Min(30, title.Length)];
 
         // rssからtitle, description,link,languageを取得して設定する
-        return new ProfileInfo(name, iconPath, thumbnailPath, title, description, lang, feed.Link, rssUrl, tags);
+        return new ProfileInfo(name, iconPath, thumbnailPath, title, description, lang, siteUrl.AbsoluteUri, rssUrl, tags);
     }
 }
