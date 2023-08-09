@@ -27,4 +27,16 @@ public class ProfileInfoTest
             Assert.Equal("https://ufcpp.net/rssblog", profile.Rss);
         }
     }
+
+    [Fact]
+    public async Task FetchProfileTest_InvalidUrl()
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => ProfileInfo.FetchFromWebsite(new Uri("https://www.google.com")));
+    }
+
+    [Fact]
+    public async Task FetchProfileTest_NonExistentUrl()
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => ProfileInfo.FetchFromWebsite(new Uri("https://www.youtube.com/channel/invalid_channel_id")));
+    }
 }

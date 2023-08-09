@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
@@ -28,10 +29,17 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
         var feed = await FallbackIfException(() => FeedReader.ReadAsync(rssUrl), _ => Task.CompletedTask);
         if (feed is null)
         {
-            document.Load(await httpClient.GetStreamAsync(url));
+            try
+            {
+                document.Load(await httpClient.GetStreamAsync(url));
+            }
+            catch (HttpRequestException e) when (e.StatusCode == HttpStatusCode.NotFound)
+            {
+                throw new ArgumentException("404 Not Found", nameof(url), e);
+            }
             rssUrl = document.DocumentNode.SelectSingleNode("//link[@type='application/rss+xml']")
                 ?.GetAttributeValue("href", string.Empty)
-                ?? throw new InvalidOperationException("'application/rss+xml' not found");
+                ?? throw new ArgumentException("'application/rss+xml' not found");
             var rssUri = new Uri(rssUrl, UriKind.RelativeOrAbsolute);
             if (!rssUri.IsAbsoluteUri)
             {
