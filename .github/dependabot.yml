@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # nugetのパッケージ更新
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: weekly
+  # github-actioonsの更新
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: weekly
+  
