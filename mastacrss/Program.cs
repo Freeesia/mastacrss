@@ -288,8 +288,8 @@ static async Task SetupAccount(IHttpClientFactory factory, string accessToken, P
 
 static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options, AccountContext accountContext, Uri uri)
 {
-    var info = await ProfileInfo.FetchFromWebsite(uri);
-    logger.LogInformation(info.ToString());
+    // var info = await ProfileInfo.FetchFromWebsite(uri);
+    // logger.LogInformation(info.ToString());
     // await accountContext.Database.EnsureCreatedAsync();
     // await accountContext.AccountInfos.AddAsync(new("hoge", "fuga", "piyo"));
     // await accountContext.SaveChangesAsync();
@@ -304,6 +304,8 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
     // {
     //     logger.LogInformation(url.ToString());
     // }
+    var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
+    await config.Save(options.Value.ConfigPath);
 }
 
 static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, Uri uri, string accessToken)
