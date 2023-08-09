@@ -288,6 +288,7 @@ static async Task SetupAccount(IHttpClientFactory factory, string accessToken, P
 static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options, AccountContext accountContext, Uri uri)
 {
     var info = await ProfileInfo.FetchFromWebsite(uri);
+    logger.LogInformation(info.ToString());
     // await accountContext.Database.EnsureCreatedAsync();
     // await accountContext.AccountInfos.AddAsync(new("hoge", "fuga", "piyo"));
     // await accountContext.SaveChangesAsync();
