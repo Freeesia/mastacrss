@@ -61,6 +61,7 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
             var json = Regex.Match(script, @"(?<=ytInitialData\s*=\s*)(?<json>{.*})(?=;)", RegexOptions.Singleline).Groups["json"].Value;
             var handleUrl = JsonDocument.Parse(json).SelectElement("$.metadata.channelMetadataRenderer.vanityChannelUrl")?.GetString() ?? throw new InvalidOperationException("vanityChannelUrl not found");
             siteUrl = new Uri(handleUrl, UriKind.Absolute);
+            rssUrl = feed.Link;
         }
 
         // 安全な名前生成

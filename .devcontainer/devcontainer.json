@@ -28,7 +28,8 @@
 				"github.vscode-github-actions",
 				"GitHub.vscode-pull-request-github",
 				"VisualStudioExptTeam.vscodeintellicode",
-				"humao.rest-client"
+				"humao.rest-client",
+				"formulahendry.dotnet-test-explorer"
 			]
 		}
 	}

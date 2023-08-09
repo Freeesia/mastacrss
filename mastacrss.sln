@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "mastacrss", "mastacrss\mastacrss.csproj", "{06FF8BF0-713C-42BB-A5AA-5AA7D523CC32}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "mastacrss-tests", "mastacrss-tests\mastacrss-tests.csproj", "{293CEA1B-472B-4E73-B122-8A0DB362E51F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{06FF8BF0-713C-42BB-A5AA-5AA7D523CC32}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{06FF8BF0-713C-42BB-A5AA-5AA7D523CC32}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{06FF8BF0-713C-42BB-A5AA-5AA7D523CC32}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{06FF8BF0-713C-42BB-A5AA-5AA7D523CC32}.Release|Any CPU.Build.0 = Release|Any CPU
+		{293CEA1B-472B-4E73-B122-8A0DB362E51F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{293CEA1B-472B-4E73-B122-8A0DB362E51F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{293CEA1B-472B-4E73-B122-8A0DB362E51F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{293CEA1B-472B-4E73-B122-8A0DB362E51F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

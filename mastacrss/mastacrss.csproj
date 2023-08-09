@@ -21,5 +21,7 @@
     <PackageReference Include="VYaml" Version="0.13.1" />
     <PackageReference Include="Sentry.Extensions.Logging" Version="3.34.0" />
   </ItemGroup>
-
+  <ItemGroup>
+    <InternalsVisibleTo Include="mastacrss-tests" />
+  </ItemGroup>
 </Project>
