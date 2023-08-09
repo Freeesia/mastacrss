@@ -27,7 +27,7 @@ jobs:
 
     - uses: docker/build-push-action@v4
       with:
-        context: ./mastacrss
+        context: .
         build-args: |
           Repository=${{ github.repository }}
         labels: |
