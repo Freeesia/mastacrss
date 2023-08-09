@@ -29,6 +29,7 @@ var app = ConsoleApp.CreateBuilder(args)
 app.AddRootCommand(Run);
 app.AddCommand("test", Test);
 app.AddCommand("setup", Setup);
+app.AddCommand("setup-all", SetupAll);
 await app.RunAsync();
 
 static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options, AccountContext accountContext, IHttpClientFactory factory)
@@ -312,6 +313,18 @@ static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> option
     var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
     config.AddSource(info.Name, info.Rss, options.Value.MastodonUrl.AbsoluteUri, accessToken);
     await config.Save(options.Value.ConfigPath);
+}
+
+static async Task SetupAll(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory)
+{
+    var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
+    foreach (var source in config.Sources.Where(s => s.Id.StartsWith("youtube")))
+    {
+        var profile = await ProfileInfo.FetchFromWebsite(new Uri(source.Source.Feed));
+        profile = profile with { Name = source.Id };
+        logger.LogInformation(profile.ToString());
+        await SetupAccount(factory, source.Dest.Mastodon.Token, profile, logger);
+    }
 }
 
 record Token(string access_token, string token_type, string scope, long created_at);
