@@ -18,10 +18,14 @@
     <PackageReference Include="Microsoft.Extensions.Options" Version="7.0.1" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="7.0.0" />
     <PackageReference Include="PasswordGenerator" Version="2.1.0" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.0.1" />
     <PackageReference Include="VYaml" Version="0.13.2" />
     <PackageReference Include="Sentry.Extensions.Logging" Version="3.34.0" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="mastacrss-tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="feed-icon-128x128.png" />
   </ItemGroup>
 </Project>

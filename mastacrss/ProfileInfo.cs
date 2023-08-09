@@ -1,9 +1,11 @@
 using System.Net;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
 using CodeHollow.FeedReader.Feeds;
 using HtmlAgilityPack;
+using SixLabors.ImageSharp.Formats.Png;
 using static SystemUtility;
 
 partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Lang, string Link, string Rss, string[] Keywords)
@@ -129,7 +131,32 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
         }
         if (!File.Exists(iconPath) && File.Exists(thumbnailPath))
         {
-            iconPath = thumbnailPath;
+            iconPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            File.Copy(thumbnailPath, iconPath);
+        }
+
+        // アイコン画像にRSSの画像を重ねる
+        if (File.Exists(iconPath))
+        {
+            using Image baseImage = Image.Load(iconPath);
+            using Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("mastacrss.feed-icon-128x128.png") ?? throw new InvalidOperationException("feed-icon-128x128.png not found");
+            using Image overlayImage = Image.Load(stream);
+            // ベース画像を最大400pxの正方形に切り抜く
+            var size = Math.Min(baseImage.Width, baseImage.Height);
+            var cropRectangle = new Rectangle((baseImage.Width - size) / 2, (baseImage.Height - size) / 2, size, size);
+            baseImage.Mutate(x => x.Crop(cropRectangle));
+            // 上に重ねる画像をベース画像の1/8にリサイズ
+            int overlayWidth = baseImage.Width / 4;
+            int overlayHeight = baseImage.Height / 4;
+            overlayImage.Mutate(x => x.Resize(overlayWidth, overlayHeight));
+
+            // ベース画像の右下にリサイズした画像を描画
+            int positionX = baseImage.Width - overlayWidth;
+            int positionY = baseImage.Height - overlayHeight;
+            baseImage.Mutate(x => x.DrawImage(overlayImage, new Point(positionX, positionY), 1f));
+
+            // 結果の画像を保存
+            baseImage.Save(iconPath, new PngEncoder());
         }
 
         var description = feed.Description;
