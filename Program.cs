@@ -58,7 +58,8 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options,
                     logger.LogError(ex, $"Failed to fetch profile info from {url}");
                     await client.PublishStatus($"""
                         @{status.Account.AccountName}
-                        フィード情報の取得に失敗しました。別のURLをお試しください。
+                        以下のURLのフィード情報の取得に失敗しました。別のURLをお試しください。
+                        {url}
                         """, status.Visibility, status.Id);
                 });
             if (profileInfo is null) continue;
