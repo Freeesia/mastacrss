@@ -1,6 +1,6 @@
 FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build-env
 WORKDIR /app
-COPY . .
+COPY ./mastacrss .
 RUN dotnet publish -c Release -o out -r linux-x64
 
 # Build runtime image
