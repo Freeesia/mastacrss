@@ -111,7 +111,7 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options,
             if (!accountInfo.Notified)
             {
                 var mediaIds = new List<string>(1);
-                if ((profileInfo.IconPath ?? profileInfo.ThumbnailPath) is { } path)
+                if (profileInfo.ThumbnailPath is { } path)
                 {
                     using var stream = File.OpenRead(path);
                     var m = await client.UploadMedia(stream);
