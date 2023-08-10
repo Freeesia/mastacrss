@@ -141,10 +141,16 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
             using Image baseImage = Image.Load(iconPath);
             using Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("mastacrss.feed-icon-128x128.png") ?? throw new InvalidOperationException("feed-icon-128x128.png not found");
             using Image overlayImage = Image.Load(stream);
-            // ベース画像を最大400pxの正方形に切り抜く
+            // 画像を正方形に切り抜く
             var size = Math.Min(baseImage.Width, baseImage.Height);
             var cropRectangle = new Rectangle((baseImage.Width - size) / 2, (baseImage.Height - size) / 2, size, size);
             baseImage.Mutate(x => x.Crop(cropRectangle));
+            // 400px以上なら400pxに縮小する
+            if (size > 400)
+            {
+                size = 400;
+                baseImage.Mutate(x => x.Resize(size, size));
+            }
             // 上に重ねる画像をベース画像の1/8にリサイズ
             int overlayWidth = baseImage.Width / 4;
             int overlayHeight = baseImage.Height / 4;
