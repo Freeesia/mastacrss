@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
@@ -52,7 +52,7 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options,
         foreach (var url in GetUrls(status.Content))
         {
             var profileInfo = await FallbackIfException(
-                () => ProfileInfo.FetchFromWebsite(url),
+                () => ProfileInfo.FetchFromWebsite(factory, url),
                 async ex =>
                 {
                     logger.LogError(ex, $"Failed to fetch profile info from {url}");
@@ -286,10 +286,10 @@ static async Task SetupAccount(IHttpClientFactory factory, string accessToken, P
     }
 }
 
-static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options, AccountContext accountContext, Uri uri)
+static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, AccountContext accountContext, Uri uri)
 {
-    // var info = await ProfileInfo.FetchFromWebsite(uri);
-    // logger.LogInformation(info.ToString());
+    var info = await ProfileInfo.FetchFromWebsite(factory, uri);
+    logger.LogInformation(info.ToString());
     // await accountContext.Database.EnsureCreatedAsync();
     // await accountContext.AccountInfos.AddAsync(new("hoge", "fuga", "piyo"));
     // await accountContext.SaveChangesAsync();
@@ -304,13 +304,13 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
     // {
     //     logger.LogInformation(url.ToString());
     // }
-    var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
-    await config.Save(options.Value.ConfigPath);
+    // var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
+    // await config.Save(options.Value.ConfigPath);
 }
 
 static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, Uri uri, string accessToken)
 {
-    var info = await ProfileInfo.FetchFromWebsite(uri);
+    var info = await ProfileInfo.FetchFromWebsite(factory, uri);
     await SetupAccount(factory, accessToken, info, logger);
     var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
     config.AddSource(info.Name, info.Rss, options.Value.MastodonUrl.AbsoluteUri, accessToken);
@@ -320,12 +320,20 @@ static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> option
 static async Task SetupAll(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory)
 {
     var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
-    foreach (var source in config.Sources.Where(s => s.Id.StartsWith("youtube")))
+    foreach (var source in config.Sources)
     {
-        var profile = await ProfileInfo.FetchFromWebsite(new Uri(source.Source.Feed));
+        try
+        {
+            var profile = await ProfileInfo.FetchFromWebsite(factory, new Uri(source.Source.Feed));
         profile = profile with { Name = source.Id };
         logger.LogInformation(profile.ToString());
         await SetupAccount(factory, source.Dest.Mastodon.Token, profile, logger);
+            await Task.Delay(TimeSpan.FromMinutes(1));
+        }
+        catch (System.Exception)
+        {
+            logger.LogWarning($"Failed to setup {source.Id}");
+        }
     }
 }
 

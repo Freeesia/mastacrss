@@ -20,9 +20,15 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
     [GeneratedRegex("(?<!非)(公式|オフィシャル|\\sofficial)", RegexOptions.IgnoreCase)]
     private static partial Regex OfficialRegex();
 
-    public static async Task<ProfileInfo> FetchFromWebsite(Uri url)
+    [GeneratedRegex("(?<=ytInitialData\\s*=\\s*)(?<json>{.*})(?=;)", RegexOptions.Singleline)]
+    private static partial Regex YouTubeDataRegex();
+
+    [GeneratedRegex("[^a-zA-Z0-9_]")]
+    private static partial Regex SafeNameRegex();
+
+    public static async Task<ProfileInfo> FetchFromWebsite(IHttpClientFactory factory, Uri url)
     {
-        using var httpClient = new HttpClient();
+        using var httpClient = factory.CreateClient();
         httpClient.BaseAddress = url;
         var document = new HtmlDocument();
 
@@ -68,7 +74,7 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
             var channelUrl = atom.Links.FirstOrDefault(x => x.Relation != "self")?.Href ?? throw new InvalidOperationException("channel url not found");
             document.Load(await httpClient.GetStreamAsync(channelUrl));
             var script = document.DocumentNode.SelectSingleNode("//script[contains(text(), 'ytInitialData')]")?.InnerText ?? throw new InvalidOperationException("ytInitialData not found");
-            var json = Regex.Match(script, @"(?<=ytInitialData\s*=\s*)(?<json>{.*})(?=;)", RegexOptions.Singleline).Groups["json"].Value;
+            var json = YouTubeDataRegex().Match(script).Groups["json"].Value;
             var handleUrl = JsonDocument.Parse(json).SelectElement("$.metadata.channelMetadataRenderer.vanityChannelUrl")?.GetString() ?? throw new InvalidOperationException("vanityChannelUrl not found");
             siteUrl = new Uri(handleUrl, UriKind.Absolute);
             rssUrl = feed.Link;
@@ -83,7 +89,7 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
             .Concat(siteUrl.Segments.Select(s => s.Trim('/')))
             .Where(s => !string.IsNullOrEmpty(s));
         var name = string.Join('_', nameSegs);
-        name = Regex.Replace(name, "[^a-zA-Z0-9_]", string.Empty);
+        name = SafeNameRegex().Replace(name, string.Empty);
         name = name[..int.Min(30, name.Length)].ToString();
 
         // apple-touch-iconの画像をダウンロードしてパスを取得する
