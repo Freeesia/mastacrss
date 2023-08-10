@@ -58,7 +58,12 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
         }
         else
         {
-            document.Load(await httpClient.GetStreamAsync(feed.Link));
+            using var st = await FallbackIfException(() => httpClient.GetStreamAsync(feed.Link), _ => Task.CompletedTask)
+                ?? await FallbackIfException(() => httpClient.GetStreamAsync(new Uri(feed.Link).GetLeftPart(UriPartial.Authority)), _ => Task.CompletedTask);
+            if (st is not null)
+            {
+                document.Load(st);
+            }
         }
 
         // プロフィールに記載するWebサイトのURL
