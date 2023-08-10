@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
@@ -34,7 +34,7 @@ await app.RunAsync();
 
 static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options, AccountContext accountContext, IHttpClientFactory factory)
 {
-    var (mastodonUrl, tootAppToken, monitoringToken, configPath, reactiveTag) = options.Value;
+    var (mastodonUrl, tootAppToken, monitoringToken, configPath, reactiveTag, dispNamePrefix) = options.Value;
     var client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken, factory.CreateClient());
     await accountContext.Database.EnsureCreatedAsync();
     async void CheckRssUrl(Status? status, string myId)
@@ -93,7 +93,7 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options,
             }
             if (!accountInfo.Setuped)
             {
-                await SetupAccount(factory, accessToken, profileInfo, logger);
+                await SetupAccount(factory, accessToken, profileInfo, dispNamePrefix, logger);
                 accountContext.UpdateAsNoTracking(accountInfo with { Setuped = true });
                 await accountContext.SaveChangesAsync();
             }
@@ -230,26 +230,27 @@ static async Task<string> WaitVerifiy(IHttpClientFactory factory, string accessT
     return account.id;
 }
 
-static async Task SetupAccount(IHttpClientFactory factory, string accessToken, ProfileInfo profileInfo, ILogger logger)
+static async Task SetupAccount(IHttpClientFactory factory, string accessToken, ProfileInfo profileInfo, string dispNamePrefix, ILogger logger, bool setAvatar = true, bool setHeader = true, bool setBio = true, bool setTags = true)
 {
+    var (_, iconPath, thumbnailPath, title, note, language, link, rss, keywords) = profileInfo;
     using var client = factory.CreateClient(Mastodon);
     client.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);
     // 3. プロフィール画像の設定
     var updateCredentialsUrl = "/api/v1/accounts/update_credentials";
 
     // apple-touch-icon.pngを取得して設定する
-    if (!string.IsNullOrEmpty(profileInfo.IconPath))
+    if (!string.IsNullOrEmpty(iconPath) && setAvatar)
     {
-        using var avatarFile = File.OpenRead(profileInfo.IconPath);
+        using var avatarFile = File.OpenRead(iconPath);
         var content = new MultipartFormDataContent();
         content.Add(new StreamContent(avatarFile), "avatar", "avatar.png");
         var response = await client.PatchAsync(updateCredentialsUrl, content);
         response.EnsureSuccessStatusCode();
     }
     // og:imageを取得して設定する
-    if (!string.IsNullOrEmpty(profileInfo.ThumbnailPath))
+    if (!string.IsNullOrEmpty(thumbnailPath) && setHeader)
     {
-        using var headerFile = File.OpenRead(profileInfo.ThumbnailPath);
+        using var headerFile = File.OpenRead(thumbnailPath);
         var content = new MultipartFormDataContent();
         content.Add(new StreamContent(headerFile), "header", "header.png");
         var response = await client.PatchAsync(updateCredentialsUrl, content);
@@ -257,31 +258,36 @@ static async Task SetupAccount(IHttpClientFactory factory, string accessToken, P
     }
 
     // 4. プロフィール文の設定
+    if (setBio)
     {
+        var dispName = dispNamePrefix + title;
         var response = await client.PatchAsJsonAsync(updateCredentialsUrl, new
         {
-            display_name = profileInfo.Title,
-            note = profileInfo.Description,
+            display_name = dispName[..Math.Min(30, dispName.Length)],
+            note,
             fields_attributes = new Dictionary<int, object>()
             {
-                [0] = new { name = "Website", value = profileInfo.Link, },
-                [1] = new { name = "RSS", value = profileInfo.Rss, },
+                [0] = new { name = "Website", value = link, },
+                [1] = new { name = "RSS", value = rss, },
             },
             bot = true,
             discoverable = true,
-            source = new { language = profileInfo.Lang },
+            source = new { language },
         });
         response.EnsureSuccessStatusCode();
     }
 
     // 5. タグの設定
-    var safe = new Regex(@"[\s\*_\-\[\]\(\)]");
-    foreach (var keyword in profileInfo.Keywords.Take(10))
+    if (setTags)
     {
-        var response = await client.PostAsJsonAsync("/api/v1/featured_tags", new { name = safe.Replace(keyword, "_") });
-        if (!response.IsSuccessStatusCode)
+        var safe = new Regex(@"[\s\*_\-\[\]\(\)]");
+        foreach (var keyword in keywords.Take(10))
         {
-            logger.LogWarning($"Failed to add tag: {keyword}");
+            var response = await client.PostAsJsonAsync("/api/v1/featured_tags", new { name = safe.Replace(keyword, "_") });
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning($"Failed to add tag: {keyword}");
+            }
         }
     }
 }
@@ -311,7 +317,7 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
 static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, Uri uri, string accessToken)
 {
     var info = await ProfileInfo.FetchFromWebsite(factory, uri);
-    await SetupAccount(factory, accessToken, info, logger);
+    await SetupAccount(factory, accessToken, info, options.Value.DispNamePrefix, logger);
     var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
     config.AddSource(info.Name, info.Rss, options.Value.MastodonUrl.AbsoluteUri, accessToken);
     await config.Save(options.Value.ConfigPath);
@@ -325,10 +331,10 @@ static async Task SetupAll(ILogger<Program> logger, IOptions<ConsoleOptions> opt
         try
         {
             var profile = await ProfileInfo.FetchFromWebsite(factory, new Uri(source.Source.Feed));
-        profile = profile with { Name = source.Id };
-        logger.LogInformation(profile.ToString());
-        await SetupAccount(factory, source.Dest.Mastodon.Token, profile, logger);
-            await Task.Delay(TimeSpan.FromMinutes(1));
+            profile = profile with { Name = source.Id };
+            logger.LogInformation(profile.ToString());
+            await SetupAccount(factory, source.Dest.Mastodon.Token, profile, options.Value.DispNamePrefix, logger, false, false, true, false);
+            await Task.Delay(TimeSpan.FromSeconds(30));
         }
         catch (System.Exception)
         {
@@ -348,8 +354,9 @@ record ConsoleOptions
     public required string MonitoringToken { get; init; }
     public required string ConfigPath { get; init; }
     public required string ReactiveTag { get; init; }
+    public required string DispNamePrefix { get; init; } = string.Empty;
 
-    public void Deconstruct(out Uri mastodonUrl, out string tootAppToken, out string monitoringToken, out string configPath, out string reactiveTag)
-        => (mastodonUrl, tootAppToken, monitoringToken, configPath, reactiveTag)
-        = (this.MastodonUrl, this.TootAppToken, this.MonitoringToken, this.ConfigPath, this.ReactiveTag);
+    public void Deconstruct(out Uri mastodonUrl, out string tootAppToken, out string monitoringToken, out string configPath, out string reactiveTag, out string dispNamePrefix)
+        => (mastodonUrl, tootAppToken, monitoringToken, configPath, reactiveTag, dispNamePrefix)
+        = (this.MastodonUrl, this.TootAppToken, this.MonitoringToken, this.ConfigPath, this.ReactiveTag, this.DispNamePrefix);
 }

@@ -199,7 +199,6 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
         var title = feed.Title;
         // 公式って入ると勘違いするので抜く。けど「非公式」は残す
         title = OfficialRegex().Replace(title, string.Empty);
-        title = title[..Math.Min(30, title.Length)];
 
         // rssからtitle, description,link,languageを取得して設定する
         return new ProfileInfo(name, iconPath, thumbnailPath, title, description, lang, siteUrl.AbsoluteUri, rssUrl, tags);
