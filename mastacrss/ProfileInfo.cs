@@ -1,5 +1,6 @@
 using System.Net;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
@@ -10,6 +11,8 @@ using static SystemUtility;
 
 partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Lang, string Link, string Rss, string[] Keywords)
 {
+    static ProfileInfo() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
     const string DescSuffix = """
 
 
