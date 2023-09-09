@@ -6,18 +6,20 @@
 
 ### 固定投稿一覧取得
 GET {{baseUrl}}/api/v1/accounts/{{accountId}}/statuses?pinned&limit=1 HTTP/1.1
-Authorization: Bearer {{$dotenv MonitoringToken}}
+Authorization: Bearer {{$dotenv Token}}
 
 ### アカウント情報取得
 GET {{baseUrl}}/api/v1/accounts/verify_credentials HTTP/1.1
-Authorization: Bearer {{$dotenv MonitoringToken}}
+Authorization: Bearer {{$dotenv Token}}
 
 ### アカウント情報設定
 PATCH {{baseUrl}}/api/v1/accounts/update_credentials HTTP/1.1
-Authorization: Bearer {{$dotenv MonitoringToken}}
+Authorization: Bearer {{$dotenv Token}}
 Content-Type: application/json
 
 {
+    "discoverable": true,
+    "indexable": true
 }
 
 ### アクセストークン取得

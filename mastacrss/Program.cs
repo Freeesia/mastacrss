@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
@@ -230,7 +230,7 @@ static async Task<string> WaitVerifiy(IHttpClientFactory factory, string accessT
     return account.id;
 }
 
-static async Task SetupAccount(IHttpClientFactory factory, string accessToken, ProfileInfo profileInfo, string dispNamePrefix, ILogger logger, bool setAvatar = true, bool setHeader = true, bool setBio = true, bool setTags = true)
+static async Task SetupAccount(IHttpClientFactory factory, string accessToken, ProfileInfo profileInfo, string dispNamePrefix, ILogger logger, bool setAvatar = true, bool setHeader = true, bool setBio = true, bool setTags = true, bool setFixedInfo = true)
 {
     var (_, iconPath, thumbnailPath, title, note, language, link, rss, keywords) = profileInfo;
     using var client = factory.CreateClient(Mastodon);
@@ -270,8 +270,6 @@ static async Task SetupAccount(IHttpClientFactory factory, string accessToken, P
                 [0] = new { name = "Website", value = link, },
                 [1] = new { name = "RSS", value = rss, },
             },
-            bot = true,
-            discoverable = true,
             source = new { language },
         });
         response.EnsureSuccessStatusCode();
@@ -289,6 +287,17 @@ static async Task SetupAccount(IHttpClientFactory factory, string accessToken, P
                 logger.LogWarning($"Failed to add tag: {keyword}");
             }
         }
+    }
+
+    if (setFixedInfo)
+    {
+        var response = await client.PatchAsJsonAsync(updateCredentialsUrl, new
+        {
+            discoverable = true,
+            indexable = true,
+            bot = true,
+        });
+        response.EnsureSuccessStatusCode();
     }
 }
 
