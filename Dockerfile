@@ -13,6 +13,7 @@ RUN apt-get update \
 
 # supervisord.confをコピー
 COPY docker/supervisord.conf /etc/supervisord.conf
+COPY docker/entrypoint.sh /entrypoint.sh
 COPY --from=build-env /app/out .
 # supervisordを実行
-ENTRYPOINT ["supervisord", "-c", "/etc/supervisord.conf"]
+ENTRYPOINT ["/entrypoint.sh"]
