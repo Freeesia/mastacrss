@@ -15,11 +15,14 @@ class AccountContext : DbContext
             .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTrackingWithIdentityResolution);
 }
 
+[PrimaryKey(nameof(Url), nameof(RequestId))]
 record AccountInfo(
-    [property: Key] string Name,
-    string AccessToken,
+    Uri Url,
     string RequestId,
-    string? Id = null,
+    string? Name = null,
+    string? BotId = null,
+    string? AccessToken = null,
     bool Setuped = false,
     bool Notified = false,
-    bool Replied = false);
+    bool Replied = false,
+    bool Finished = false);
