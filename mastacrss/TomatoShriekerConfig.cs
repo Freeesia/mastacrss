@@ -25,79 +25,24 @@ partial record TomatoShriekerConfig
     }
 
     public void AddSource(string name, string feed, string mastodonUrl, string mastodonToken)
-    {
-        this.Sources.Add(new()
-        {
-            Id = name,
-            Source = new()
-            {
-                Feed = feed,
-                RemoteKeyword = new()
-                {
-                    Enable = true,
-                    Ignore = null,
-                    ReplaceRules = null,
-                },
-            },
-            Dest = new()
-            {
-                Account = new() { Bot = true },
-                Mastodon = new() { Url = mastodonUrl, Token = mastodonToken },
-                Tags = new[] { name }
-            }
-        });
-    }
+        => this.Sources.Add(new(name, new(new(), new(mastodonUrl, mastodonToken), new[] { name }), new(), new(feed, new(true, null, null))));
 }
+
 [YamlObject]
-partial record SourceInfo
-{
-    public required string Id { get; init; }
-    public required Dest Dest { get; init; }
-    public required Source Source { get; init; }
-}
+partial record SourceInfo(string Id, Dest Dest, Schedule Schedule, Source Source);
 [YamlObject]
-partial record Source
-{
-    public required string Feed { get; init; }
-    [YamlMember("remote_keyword")]
-    public required RemoteKeyword RemoteKeyword { get; init; }
-    [YamlMember("remote_xpath_tags")]
-    public string? RemoteXpathTags { get; init; }
-}
+partial record Source(string Feed, [property: YamlMember("remote_keyword")] RemoteKeyword RemoteKeyword, [property: YamlMember("remote_xpath_tags")] string? RemoteXpathTags = null);
 [YamlObject]
-partial record RemoteKeyword
-{
-    public required bool Enable { get; init; }
-    public required IReadOnlyList<string>? Ignore { get; init; }
-    [YamlMember("replace_rules")]
-    public required IReadOnlyList<ReplaceRule>? ReplaceRules { get; init; }
-}
+partial record RemoteKeyword(bool Enable, IReadOnlyList<string>? Ignore, [property: YamlMember("replace_rules")] IReadOnlyList<ReplaceRule>? ReplaceRules);
 [YamlObject]
-partial record ReplaceRule
-{
-    public required string Pattern { get; init; }
-    public required string Replace { get; init; }
-}
+partial record ReplaceRule(string Pattern, string Replace);
 [YamlObject]
-partial record Dest
-{
-    public required AccountDest Account { get; init; }
-    public required MastodonDest Mastodon { get; init; }
-    public required IReadOnlyList<string>? Tags { get; init; }
-}
+partial record Dest(AccountDest Account, MastodonDest Mastodon, IReadOnlyList<string>? Tags);
 [YamlObject]
-partial record AccountDest
-{
-    public required bool Bot { get; init; }
-}
+partial record AccountDest(bool Bot = true);
 [YamlObject]
-partial record MastodonDest
-{
-    public required string Url { get; init; }
-    public required string Token { get; init; }
-}
+partial record MastodonDest(string Url, string Token);
 [YamlObject]
-partial record CryptInfo
-{
-    public required string Password { get; init; }
-}
+partial record CryptInfo(string Password);
+[YamlObject]
+partial record Schedule(string? Every = "20m");

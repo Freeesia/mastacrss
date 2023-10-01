@@ -76,6 +76,23 @@
             ]
         },
         {
+            "name": "config-test",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/mastacrss/bin/Debug/net7.0/mastacrss.dll",
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "env": {
+                "ConfigPath": "${workspaceFolder}/local.yml"
+            },
+            "envFile": "${workspaceFolder}/.env",
+            "args": [
+                "config-test",
+            ]
+        },
+        {
             "name": ".NET Core Attach",
             "type": "coreclr",
             "request": "attach"

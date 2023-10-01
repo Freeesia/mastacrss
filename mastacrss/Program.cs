@@ -23,6 +23,7 @@ var app = ConsoleApp.CreateBuilder(args)
     .Build();
 app.AddRootCommand(Run);
 app.AddCommand("test", Test);
+app.AddCommand("config-test", ConfigTest);
 app.AddCommand("setup", Setup);
 app.AddCommand("setup-all", SetupAll);
 await app.RunAsync();
@@ -103,6 +104,12 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
     // }
     // var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
     // await config.Save(options.Value.ConfigPath);
+}
+
+static async Task ConfigTest(IOptions<ConsoleOptions> options)
+{
+    var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
+    await config.Save(options.Value.ConfigPath);
 }
 
 static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, Uri uri, string accessToken)
