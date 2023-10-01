@@ -9,7 +9,7 @@ using HtmlAgilityPack;
 using SixLabors.ImageSharp.Formats.Png;
 using static SystemUtility;
 
-partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Lang, string Link, string Rss, string[] Keywords)
+partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Lang, string Link, string Rss, string[] Keywords, TimeSpan Interval)
 {
     static ProfileInfo() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
@@ -208,7 +208,37 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
         // 公式って入ると勘違いするので抜く。けど「非公式」は残す
         title = OfficialRegex().Replace(title, string.Empty);
 
+        var period = TimeSpan.FromMinutes(20);
+        if (feed.Items.Where(i => i.PublishingDate.HasValue).Select(i => i.PublishingDate!.Value).Order().ToArray() is [var first, .. var rest])
+        {
+            var periods = new List<TimeSpan>();
+            var before = first;
+            foreach (var item in rest)
+            {
+                periods.Add(item - before);
+                before = item;
+            }
+            // 5分未満は連続投稿扱いで無視
+            periods = periods.Where(p => p.TotalMinutes > 5).ToList();
+            // 中央値の算出
+            periods.Sort();
+            var count = periods.Count;
+            period = count % 2 == 1 ? periods[count / 2] : ((periods[(count - 1) / 2] + periods[count / 2]) / 2);
+            // 中央値の6倍間隔でチェック
+            period /= 6;
+            // 間隔が20分未満なら20分に制限
+            if (period.TotalMinutes < 20)
+            {
+                period = TimeSpan.FromMinutes(20);
+            }
+            // 間隔が6時間以上なら6時間に制限
+            else if (period.TotalHours > 6)
+            {
+                period = TimeSpan.FromHours(6);
+            }
+        }
+
         // rssからtitle, description,link,languageを取得して設定する
-        return new ProfileInfo(name, iconPath, thumbnailPath, title, description, lang, siteUrl.AbsoluteUri, rssUrl, tags);
+        return new ProfileInfo(name, iconPath, thumbnailPath, title, description, lang, siteUrl.AbsoluteUri, rssUrl, tags, period);
     }
 }

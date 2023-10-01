@@ -106,9 +106,19 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
     // await config.Save(options.Value.ConfigPath);
 }
 
-static async Task ConfigTest(IOptions<ConsoleOptions> options)
+static async Task ConfigTest(IOptions<ConsoleOptions> options, IHttpClientFactory factory)
 {
     var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
+    for (int i = 0; i < config.Sources.Count; i++)
+    {
+        var source = config.Sources[i];
+        try
+        {
+            var info = await ProfileInfo.FetchFromWebsite(factory, new(source.Source.Feed));
+            config.Sources[i] = source with { Schedule = new($"{(int)info.Interval.TotalMinutes}m") };
+        }
+        catch { }
+    }
     await config.Save(options.Value.ConfigPath);
 }
 
@@ -117,7 +127,7 @@ static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> option
     var info = await ProfileInfo.FetchFromWebsite(factory, uri);
     await AccountRegisterer.SetupAccount(factory, accessToken, info, options.Value.DispNamePrefix, logger);
     var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
-    config.AddSource(info.Name, info.Rss, options.Value.MastodonUrl.AbsoluteUri, accessToken);
+    config.AddSource(info.Name, info.Rss, options.Value.MastodonUrl.AbsoluteUri, accessToken, info.Interval);
     await config.Save(options.Value.ConfigPath);
 }
 

@@ -132,7 +132,7 @@ class AccountRegisterer
         var config = await TomatoShriekerConfig.Load(configPath);
         if (!config.Sources.Any(s => s.Id == profileInfo.Name))
         {
-            config.AddSource(profileInfo.Name, profileInfo.Rss, mastodonUrl.AbsoluteUri, token);
+            config.AddSource(profileInfo.Name, profileInfo.Rss, mastodonUrl.AbsoluteUri, token, profileInfo.Interval);
             await config.Save(configPath);
             logger.LogInformation($"Saved config to {configPath}");
         }
@@ -226,7 +226,7 @@ class AccountRegisterer
 
     public static async Task SetupAccount(IHttpClientFactory factory, string accessToken, ProfileInfo profileInfo, string dispNamePrefix, ILogger logger, SetupTarget? target = null)
     {
-        var (_, iconPath, thumbnailPath, title, note, language, link, rss, keywords) = profileInfo;
+        var (_, iconPath, thumbnailPath, title, note, language, link, rss, keywords, _) = profileInfo;
         var (setAvatar, setHeader, setBio, setTags, setFixedInfo) = target ?? new();
         using var client = factory.CreateClient(Mastodon);
         client.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);

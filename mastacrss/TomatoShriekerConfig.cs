@@ -24,8 +24,8 @@ partial record TomatoShriekerConfig
         await stream.WriteAsync(writer.WrittenMemory);
     }
 
-    public void AddSource(string name, string feed, string mastodonUrl, string mastodonToken)
-        => this.Sources.Add(new(name, new(new(), new(mastodonUrl, mastodonToken), new[] { name }), new(), new(feed, new(true, null, null))));
+    public void AddSource(string name, string feed, string mastodonUrl, string mastodonToken, TimeSpan interval)
+        => this.Sources.Add(new(name, new(new(), new(mastodonUrl, mastodonToken), new[] { name }), new($"{(int)interval.TotalMinutes}m"), new(feed, new(true, null, null))));
 }
 
 [YamlObject]
