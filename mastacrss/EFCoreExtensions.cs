@@ -2,20 +2,20 @@ using Microsoft.EntityFrameworkCore;
 
 static class EFCoreExtensions
 {
-    public static async Task UpdateAsNoTracking<T>(this DbContext context, T entity)
+    public static async Task UpdateAsNoTracking<T>(this DbContext context, T entity, CancellationToken cancellationToken = default)
         where T : class
     {
         var entry = context.Update(entity);
         entry.State = EntityState.Modified;
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(cancellationToken);
         entry.State = EntityState.Detached;
     }
 
-    public static async Task AddAsNoTracking<T>(this DbContext context, T entity)
+    public static async Task AddAsNoTracking<T>(this DbContext context, T entity, CancellationToken cancellationToken = default)
         where T : class
     {
-        var entry = await context.AddAsync(entity);
-        await context.SaveChangesAsync();
+        var entry = await context.AddAsync(entity, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
         entry.State = EntityState.Detached;
     }
 }

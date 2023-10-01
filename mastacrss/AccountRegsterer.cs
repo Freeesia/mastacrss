@@ -7,6 +7,7 @@ using Mastonet.Entities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PasswordGenerator;
+using Sentry;
 using static SystemUtility;
 
 namespace mastacrss;
@@ -40,7 +41,7 @@ class AccountRegisterer
         this.client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken, factory.CreateClient());
         _ = Task.WhenAll(
             Task.Run(async () => await QueueCreate()),
-            Task.Run(async () => await StartAsync())
+            Task.Run(async () => await StartRegistarAccountAsync())
         );
     }
 
@@ -55,21 +56,28 @@ class AccountRegisterer
         await this.accountContext.Database.EnsureCreatedAsync(cancellationToken);
         foreach (var info in this.accountContext.AccountInfos.Where(a => !a.Finished))
         {
-            await this.createQueue.Writer.WriteAsync(info);
+            await this.createQueue.Writer.WriteAsync(info, cancellationToken);
         }
         await foreach (var info in this.requestQueue.Reader.ReadAllAsync(cancellationToken))
         {
-            await this.accountContext.AddAsNoTracking(info);
-            await this.accountContext.SaveChangesAsync();
-            await this.createQueue.Writer.WriteAsync(info);
+            await this.accountContext.AddAsNoTracking(info, cancellationToken);
+            await this.accountContext.SaveChangesAsync(cancellationToken);
+            await this.createQueue.Writer.WriteAsync(info, cancellationToken);
         }
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken = default)
+    private async Task StartRegistarAccountAsync(CancellationToken cancellationToken = default)
     {
         await foreach (var info in this.createQueue.Reader.ReadAllAsync(cancellationToken))
         {
-            await RegistarAccountAsync(info, cancellationToken);
+            try
+            {
+                await RegistarAccountAsync(info, cancellationToken);
+            }
+            catch (Exception e)
+            {
+                SentrySdk.CaptureException(e);
+            }
         }
     }
 
@@ -91,11 +99,11 @@ class AccountRegisterer
         // RSS情報取れなければ終了
         if (profileInfo is null)
         {
-            await accountContext.UpdateAsNoTracking(request with { Finished = true });
+            await accountContext.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
             return;
         }
         request = request with { Name = profileInfo.Name };
-        await accountContext.UpdateAsNoTracking(request);
+        await accountContext.UpdateAsNoTracking(request, cancellationToken);
 
         // トークンがなければこのリクエストでアカウント作ってない
         if (request is not { AccessToken: { } token })
@@ -110,23 +118,23 @@ class AccountRegisterer
                 依頼されたアカウントは @{profileInfo.Name} として作成済みです。
                 同一サイトで複数のRSSが存在する場合は個別に対応するので、しばらくお待ちください。
                 """, status.Visibility, status.Id);
-                await accountContext.UpdateAsNoTracking(request with { Finished = true });
+                await accountContext.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
                 return;
             }
 
             token = await CreateBot(factory, tootAppToken, profileInfo, logger);
             request = request with { AccessToken = token };
-            await accountContext.UpdateAsNoTracking(request);
+            await accountContext.UpdateAsNoTracking(request, cancellationToken);
         }
         if (request is not { BotId: { } botId })
         {
             botId = await WaitVerifiy(factory, token, logger);
-            await accountContext.UpdateAsNoTracking(request with { BotId = botId });
+            await accountContext.UpdateAsNoTracking(request with { BotId = botId }, cancellationToken);
         }
         if (!request.Setuped)
         {
             await SetupAccount(factory, token, profileInfo, dispNamePrefix, logger);
-            await accountContext.UpdateAsNoTracking(request with { Setuped = true });
+            await accountContext.UpdateAsNoTracking(request with { Setuped = true }, cancellationToken);
         }
 
         var config = await TomatoShriekerConfig.Load(configPath);
@@ -150,7 +158,7 @@ class AccountRegisterer
             await client.PublishStatus($"""
                     新しいbotアカウント {profileInfo.Title}(@{profileInfo.Name}) を作成しました。
                     """, mediaIds: mediaIds);
-            await accountContext.UpdateAsNoTracking(request with { Notified = true });
+            await accountContext.UpdateAsNoTracking(request with { Notified = true }, cancellationToken);
         }
         // await client.PublishBotListStatus(botId, profileInfo);
         logger.LogInformation($"rep: @{status.Account.AccountName}, bot: @{profileInfo.Name}, repId: {status.Id}");
@@ -160,10 +168,10 @@ class AccountRegisterer
                     @{status.Account.AccountName}
                     @{profileInfo.Name} を作成しました。
                     """, status.Visibility, status.Id);
-            await accountContext.UpdateAsNoTracking(request with { Replied = true });
+            await accountContext.UpdateAsNoTracking(request with { Replied = true }, cancellationToken);
         }
         logger.LogInformation($"Created bot account @{profileInfo.Name}");
-        await accountContext.UpdateAsNoTracking(request with { Finished = true });
+        await accountContext.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
     }
 
     static async Task<string> CreateBot(IHttpClientFactory factory, string appAccessToken, ProfileInfo profileInfo, ILogger logger)
