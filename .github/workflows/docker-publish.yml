@@ -19,7 +19,7 @@ jobs:
         IMAGE_ID=${{ github.repository }}
         IMAGE_ID=${IMAGE_ID,,}
         echo "image_tag=$IMAGE_ID" >> $GITHUB_ENV
-    - uses: docker/login-action@v2
+    - uses: docker/login-action@v3
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
