@@ -93,7 +93,7 @@ class AccountRegisterer
                     await PostVerify(request, info);
                 }
                 // TODO: 否認なら終わらせる
-                else if (await CheckVerifiy(this.factory, token, this.logger) is { } id)
+                else if (await CheckVerifiy(this.factory, token) is { } id)
                 {
                     await PostVerify(request with { BotId = id }, info);
                 }
@@ -268,7 +268,7 @@ class AccountRegisterer
         return cred.access_token;
     }
 
-    static async Task<string?> CheckVerifiy(IHttpClientFactory factory, string accessToken, ILogger logger)
+    static async Task<string?> CheckVerifiy(IHttpClientFactory factory, string accessToken)
     {
         using var client = factory.CreateClient(Mastodon);
         client.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);
