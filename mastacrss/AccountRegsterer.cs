@@ -87,21 +87,35 @@ class AccountRegisterer
         {
             try
             {
-                var token = request.AccessToken ?? throw new InvalidOperationException("なぜか認証待ちでトークンがない");
-                if (request.BotId is not null)
+                var accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: info.Name);
+                var account = accounts.Single();
+                switch (account)
                 {
-                    await PostVerify(request, info);
-                }
-                // TODO: 否認なら終わらせる
-                else if (await CheckVerifiy(this.factory, token) is { } id)
-                {
-                    await PostVerify(request with { BotId = id }, info);
-                }
-                else
-                {
-                    this.logger.LogInformation($"承認待ち: {info.Name}");
-                    await this.verifyQueue.Writer.WriteAsync((request, info));
-                    await Task.Delay(TimeSpan.FromMinutes(1));
+                    case { Disabled: true }:
+                        using (var context = await this.contextFactory.CreateDbContextAsync())
+                        {
+                            await context.UpdateAsNoTracking(request with { Finished = true });
+                        }
+                        var status = await FallbackIfException(() => this.client.GetStatus(request.RequestId));
+                        if (status is not null)
+                        {
+                            await this.client.PublishStatus($"""
+                                @{status.Account.AccountName}
+                                依頼されたサイト {request.Url} のアカウント作成は却下されました。
+                                """, status.Visibility, status.Id);
+                        }
+                        break;
+                    case { Confirmed: true } when request.BotId is not null:
+                        await PostVerify(request, info);
+                        break;
+                    case { Confirmed: true }:
+                        await PostVerify(request with { BotId = account.Id }, info);
+                        break;
+                    default:
+                        this.logger.LogInformation($"承認待ち: {info.Name}");
+                        await this.verifyQueue.Writer.WriteAsync((request, info));
+                        await Task.Delay(TimeSpan.FromMinutes(1));
+                        break;
                 }
             }
             catch (Exception e)
@@ -271,24 +285,6 @@ class AccountRegisterer
         logger.LogInformation($"password: {createAccountData.password}");
         logger.LogInformation($"token: {cred.access_token}");
         return cred.access_token;
-    }
-
-    static async Task<string?> CheckVerifiy(IHttpClientFactory factory, string accessToken)
-    {
-        using var client = factory.CreateClient(Mastodon);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);
-        var response = await client.GetAsync("/api/v1/accounts/verify_credentials");
-        if (!response.IsSuccessStatusCode)
-        {
-            // 403,422以外は想定外
-            if (response.StatusCode is not HttpStatusCode.Forbidden and not HttpStatusCode.UnprocessableEntity)
-            {
-                response.EnsureSuccessStatusCode();
-            }
-            return null;
-        }
-        var account = await response.Content.ReadFromJsonAsync<CredentialAccount>() ?? throw new Exception("Failed to get account info");
-        return account.id;
     }
 
     public static async Task SetupAccount(IHttpClientFactory factory, string accessToken, ProfileInfo profileInfo, string dispNamePrefix, ILogger logger, SetupTarget? target = null)
