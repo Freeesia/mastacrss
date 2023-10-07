@@ -77,10 +77,7 @@ class AccountRegisterer
                 var token = await CreateBot(this.factory, this.tootAppToken, info, this.logger);
                 req = await context.UpdateAsNoTracking(request with { AccessToken = token });
             }
-            else
-            {
                 await this.verifyQueue.Writer.WriteAsync((req, info));
-            }
         }
     }
 
@@ -102,6 +99,7 @@ class AccountRegisterer
                 }
                 else
                 {
+                    this.logger.LogInformation($"承認待ち: {info.Name}");
                     await this.verifyQueue.Writer.WriteAsync((request, info));
                     await Task.Delay(TimeSpan.FromMinutes(1));
                 }
