@@ -230,15 +230,15 @@ class AccountRegisterer
         if (!notified)
         {
             var mediaIds = new List<string>(1);
-            // if (info.ThumbnailPath is { } path)
-            // {
-            //     using var stream = File.OpenRead(path);
-            //     var m = await client.UploadMedia(stream);
-            //     mediaIds.Add(m.Id);
-            // }
-            // await client.PublishStatus($"""
-            //         新しいbotアカウント {info.Title}(@{info.Name}) を作成しました。
-            //         """, mediaIds: mediaIds);
+            if (info.ThumbnailPath is { } path)
+            {
+                using var stream = File.OpenRead(path);
+                var m = await client.UploadMedia(stream);
+                mediaIds.Add(m.Id);
+            }
+            await client.PublishStatus($"""
+                    新しいbotアカウント {info.Title}(@{info.Name}) を作成しました。
+                    """, mediaIds: mediaIds);
             request = await context.UpdateAsNoTracking(request with { Notified = true });
         }
         var status = await this.client.GetStatus(request.RequestId);
