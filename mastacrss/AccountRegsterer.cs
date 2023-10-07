@@ -76,6 +76,12 @@ class AccountRegisterer
             {
                 var token = await CreateBot(this.factory, this.tootAppToken, info, this.logger);
                 req = await context.UpdateAsNoTracking(request with { AccessToken = token });
+                var accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: info.Name);
+                var account = accounts.Single();
+                await this.client.PublishStatus($"""
+                    依頼サイト: {info.Link}
+                    {new Uri(this.mastodonUrl, $"/admin/accounts/{account.Id}")}
+                    """, Visibility.Direct);
             }
             await this.verifyQueue.Writer.WriteAsync((req, info));
         }
