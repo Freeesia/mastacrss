@@ -1,9 +1,11 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Mastonet;
 using Mastonet.Entities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PasswordGenerator;
@@ -17,22 +19,22 @@ namespace mastacrss;
 /// </summary>
 class AccountRegisterer
 {
-    private readonly Channel<AccountInfo> requestQueue = Channel.CreateUnbounded<AccountInfo>(new() { SingleReader = true, SingleWriter = false });
-    private readonly Channel<AccountInfo> createQueue = Channel.CreateUnbounded<AccountInfo>(new() { SingleReader = true, SingleWriter = true });
+    private readonly Channel<(AccountInfo request, ProfileInfo info)> createQueue = Channel.CreateUnbounded<(AccountInfo request, ProfileInfo info)>(new() { SingleReader = true, SingleWriter = true });
+    private readonly Channel<(AccountInfo request, ProfileInfo info)> verifyQueue = Channel.CreateUnbounded<(AccountInfo request, ProfileInfo info)>(new() { SingleReader = true, SingleWriter = false });
     private readonly ILogger<AccountRegisterer> logger;
+    private readonly IDbContextFactory<AccountContext> contextFactory;
     private readonly IHttpClientFactory factory;
-    private readonly AccountContext accountContext;
     private readonly Uri mastodonUrl;
     private readonly string configPath;
     private readonly string tootAppToken;
     private readonly string dispNamePrefix;
     private readonly MastodonClient client;
 
-    public AccountRegisterer(ILogger<AccountRegisterer> logger, AccountContext accountContext, IOptions<ConsoleOptions> options, IHttpClientFactory factory)
+    public AccountRegisterer(ILogger<AccountRegisterer> logger, IDbContextFactory<AccountContext> contextFactory, IOptions<ConsoleOptions> options, IHttpClientFactory factory)
     {
         this.logger = logger;
+        this.contextFactory = contextFactory;
         this.factory = factory;
-        this.accountContext = accountContext;
         var (mastodonUrl, tootAppToken, monitoringToken, configPath, _, dispNamePrefix) = options.Value;
         this.mastodonUrl = mastodonUrl;
         this.tootAppToken = tootAppToken;
@@ -40,39 +42,69 @@ class AccountRegisterer
         this.dispNamePrefix = dispNamePrefix;
         this.client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken, factory.CreateClient());
         _ = Task.WhenAll(
-            Task.Run(async () => await QueueCreate()),
-            Task.Run(async () => await StartRegistarAccountAsync())
+            Task.Run(StartCreateLoop),
+            Task.Run(StartVerifyLoop)
         );
     }
 
-    public async ValueTask QueueRequest(Uri url, string requestId)
+    public async ValueTask<bool> QueueRequest(Uri url, string requestId)
     {
         this.logger.LogInformation($"request: url {url}, requestId {requestId}");
-        await this.requestQueue.Writer.WriteAsync(new(url, requestId));
+        using var context = await this.contextFactory.CreateDbContextAsync();
+        if (await context.FindAsync<AccountInfo>(url, requestId) is null)
+        {
+            var info = new AccountInfo(url, requestId);
+            await context.AddAsNoTracking(info);
+            await context.SaveChangesAsync();
+            return await RegistarAccountAsync(context, info);
+        }
+        return false;
     }
 
-    private async Task QueueCreate(CancellationToken cancellationToken = default)
+    private async Task StartCreateLoop()
     {
-        await this.accountContext.Database.EnsureCreatedAsync(cancellationToken);
-        foreach (var info in this.accountContext.AccountInfos.Where(a => !a.Finished))
+        using var context = await this.contextFactory.CreateDbContextAsync();
+        await context.Database.EnsureCreatedAsync();
+        foreach (var info in context.AccountInfos.Where(a => !a.Finished))
         {
-            await this.createQueue.Writer.WriteAsync(info, cancellationToken);
+            await RegistarAccountAsync(context, info);
         }
-        await foreach (var info in this.requestQueue.Reader.ReadAllAsync(cancellationToken))
+        await foreach (var (request, info) in this.createQueue.Reader.ReadAllAsync())
         {
-            await this.accountContext.AddAsNoTracking(info, cancellationToken);
-            await this.accountContext.SaveChangesAsync(cancellationToken);
-            await this.createQueue.Writer.WriteAsync(info, cancellationToken);
+            var req = request;
+            if (req.AccessToken is null)
+            {
+                var token = await CreateBot(this.factory, this.tootAppToken, info, this.logger);
+                req = await context.UpdateAsNoTracking(request with { AccessToken = token });
+            }
+            else
+            {
+                await this.verifyQueue.Writer.WriteAsync((req, info));
+            }
         }
     }
 
-    private async Task StartRegistarAccountAsync(CancellationToken cancellationToken = default)
+    private async Task StartVerifyLoop()
     {
-        await foreach (var info in this.createQueue.Reader.ReadAllAsync(cancellationToken))
+        await foreach (var (request, info) in this.verifyQueue.Reader.ReadAllAsync())
         {
             try
             {
-                await RegistarAccountAsync(info, cancellationToken);
+                var token = request.AccessToken ?? throw new InvalidOperationException("なぜか認証待ちでトークンがない");
+                if (request.BotId is not null)
+                {
+                    await PostVerify(request, info);
+                }
+                // TODO: 否認なら終わらせる
+                else if (await CheckVerifiy(this.factory, token, this.logger) is { } id)
+                {
+                    await PostVerify(request with { BotId = id }, info);
+                }
+                else
+                {
+                    await this.verifyQueue.Writer.WriteAsync((request, info));
+                    await Task.Delay(TimeSpan.FromMinutes(1));
+                }
             }
             catch (Exception e)
             {
@@ -81,7 +113,7 @@ class AccountRegisterer
         }
     }
 
-    private async Task RegistarAccountAsync(AccountInfo request, CancellationToken cancellationToken = default)
+    private async Task<bool> RegistarAccountAsync(AccountContext context, AccountInfo request, CancellationToken cancellationToken = default)
     {
         var status = await this.client.GetStatus(request.RequestId);
         var profileInfo = await FallbackIfException(
@@ -99,17 +131,19 @@ class AccountRegisterer
         // RSS情報取れなければ終了
         if (profileInfo is null)
         {
-            await accountContext.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
-            return;
+            await context.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
+            return false;
         }
         request = request with { Name = profileInfo.Name };
-        await accountContext.UpdateAsNoTracking(request, cancellationToken);
+        await context.UpdateAsNoTracking(request, cancellationToken);
 
         // トークンがなければこのリクエストでアカウント作ってない
-        if (request is not { AccessToken: { } token })
+        if (request.AccessToken is null)
         {
             // 作成中じゃないけどアカウントが存在する場合は作成済みなので抜ける
             var accounts = await client.SearchAccounts(profileInfo.Name);
+            // TODO: 別リクエストで承認待ならスルー
+            // TODO: 否認(Lock?Suspended?で表現)だったらその旨返す
             if (accounts.Any(a => a.AccountName == profileInfo.Name))
             {
                 logger.LogInformation($"Account @{profileInfo.Name} already exists. RSS: {profileInfo.Rss}");
@@ -118,60 +152,73 @@ class AccountRegisterer
                 依頼されたアカウントは @{profileInfo.Name} として作成済みです。
                 同一サイトで複数のRSSが存在する場合は個別に対応するので、しばらくお待ちください。
                 """, status.Visibility, status.Id);
-                await accountContext.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
-                return;
+                await context.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
+                return false;
             }
+            await this.createQueue.Writer.WriteAsync((request, profileInfo), cancellationToken);
+        }
+        // BodIDが取れなければこのリクエストで承認待ち
+        else if (request.BotId is null)
+        {
+            await this.verifyQueue.Writer.WriteAsync((request, profileInfo), cancellationToken);
+        }
+        return true;
+    }
 
-            token = await CreateBot(factory, tootAppToken, profileInfo, logger);
-            request = request with { AccessToken = token };
-            await accountContext.UpdateAsNoTracking(request, cancellationToken);
-        }
-        if (request is not { BotId: { } botId })
+    private async Task PostVerify(AccountInfo request, ProfileInfo info)
+    {
+        using var context = await this.contextFactory.CreateDbContextAsync();
+        // botIdが追加されているのでいったん保存
+        await context.UpdateAsNoTracking(request);
+        var (_, _, _, botId, token, setuped, notified, replied, finished) = request;
+        if (finished)
         {
-            botId = await WaitVerifiy(factory, token, logger);
-            await accountContext.UpdateAsNoTracking(request with { BotId = botId }, cancellationToken);
+            return;
         }
-        if (!request.Setuped)
+        _ = botId ?? throw new InvalidOperationException("botId is null");
+        _ = token ?? throw new InvalidOperationException("token is null");
+        if (!setuped)
         {
-            await SetupAccount(factory, token, profileInfo, dispNamePrefix, logger);
-            await accountContext.UpdateAsNoTracking(request with { Setuped = true }, cancellationToken);
+            await SetupAccount(factory, token, info, dispNamePrefix, logger);
+            request = await context.UpdateAsNoTracking(request with { Setuped = true });
+            this.logger.LogInformation($"アカウントセットアップ完了: @{info.Name}");
         }
 
         var config = await TomatoShriekerConfig.Load(configPath);
-        if (!config.Sources.Any(s => s.Id == profileInfo.Name))
+        if (!config.Sources.Any(s => s.Id == info.Name))
         {
-            config.AddSource(profileInfo.Name, profileInfo.Rss, mastodonUrl.AbsoluteUri, token, profileInfo.Interval);
+            config.AddSource(info.Name, info.Rss, mastodonUrl.AbsoluteUri, token, info.Interval);
             await config.Save(configPath);
             logger.LogInformation($"Saved config to {configPath}");
         }
 
         await client.Follow(botId, true);
-        if (!request.Notified)
+        if (!notified)
         {
             var mediaIds = new List<string>(1);
-            if (profileInfo.ThumbnailPath is { } path)
-            {
-                using var stream = File.OpenRead(path);
-                var m = await client.UploadMedia(stream);
-                mediaIds.Add(m.Id);
-            }
-            await client.PublishStatus($"""
-                    新しいbotアカウント {profileInfo.Title}(@{profileInfo.Name}) を作成しました。
-                    """, mediaIds: mediaIds);
-            await accountContext.UpdateAsNoTracking(request with { Notified = true }, cancellationToken);
+            // if (info.ThumbnailPath is { } path)
+            // {
+            //     using var stream = File.OpenRead(path);
+            //     var m = await client.UploadMedia(stream);
+            //     mediaIds.Add(m.Id);
+            // }
+            // await client.PublishStatus($"""
+            //         新しいbotアカウント {info.Title}(@{info.Name}) を作成しました。
+            //         """, mediaIds: mediaIds);
+            request = await context.UpdateAsNoTracking(request with { Notified = true });
         }
-        // await client.PublishBotListStatus(botId, profileInfo);
-        logger.LogInformation($"rep: @{status.Account.AccountName}, bot: @{profileInfo.Name}, repId: {status.Id}");
-        if (!request.Replied)
+        var status = await this.client.GetStatus(request.RequestId);
+        logger.LogInformation($"rep: @{status.Account.AccountName}, bot: @{info.Name}, repId: {status.Id}");
+        if (!replied)
         {
             await client.PublishStatus($"""
                     @{status.Account.AccountName}
-                    @{profileInfo.Name} を作成しました。
+                    @{info.Name} を作成しました。
                     """, status.Visibility, status.Id);
-            await accountContext.UpdateAsNoTracking(request with { Replied = true }, cancellationToken);
+            request = await context.UpdateAsNoTracking(request with { Replied = true });
         }
-        logger.LogInformation($"Created bot account @{profileInfo.Name}");
-        await accountContext.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
+        logger.LogInformation($"Created bot account @{info.Name}");
+        await context.UpdateAsNoTracking(request with { Finished = true });
     }
 
     static async Task<string> CreateBot(IHttpClientFactory factory, string appAccessToken, ProfileInfo profileInfo, ILogger logger)
@@ -212,21 +259,19 @@ class AccountRegisterer
         return cred.access_token;
     }
 
-    static async Task<string> WaitVerifiy(IHttpClientFactory factory, string accessToken, ILogger logger)
+    static async Task<string?> CheckVerifiy(IHttpClientFactory factory, string accessToken, ILogger logger)
     {
         using var client = factory.CreateClient(Mastodon);
         client.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);
         var response = await client.GetAsync("/api/v1/accounts/verify_credentials");
-        while (!response.IsSuccessStatusCode)
+        if (!response.IsSuccessStatusCode)
         {
-            // 403,422が返ってきたら、まだアカウントが作成されていないので、1分待って再度試行する
+            // 403,422以外は想定外
             if (response.StatusCode is not HttpStatusCode.Forbidden and not HttpStatusCode.UnprocessableEntity)
             {
                 response.EnsureSuccessStatusCode();
             }
-            logger.LogInformation("Waiting for account creation...");
-            await Task.Delay(TimeSpan.FromMinutes(1));
-            response = await client.GetAsync("/api/v1/accounts/verify_credentials");
+            return null;
         }
         var account = await response.Content.ReadFromJsonAsync<CredentialAccount>() ?? throw new Exception("Failed to get account info");
         return account.id;

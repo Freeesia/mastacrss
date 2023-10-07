@@ -12,7 +12,7 @@ using static SystemUtility;
 var app = ConsoleApp.CreateBuilder(args)
     .ConfigureServices(
         (c, s) => s.Configure<ConsoleOptions>(c.Configuration)
-            .AddDbContext<AccountContext>(op => op.UseSqlite(c.Configuration.GetConnectionString("DefaultConnection")))
+            .AddDbContextFactory<AccountContext>(op => op.UseSqlite(c.Configuration.GetConnectionString("DefaultConnection")))
             .AddSingleton<AccountRegisterer>()
             .AddHttpClient(Mastodon, (s, c) =>
             {
@@ -44,16 +44,20 @@ static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options,
             logger.LogInformation($"No reactive tag: {status.Id}");
             return;
         }
+        var bRef = false;
         foreach (var url in GetUrls(status.Content))
         {
-            await registerer.QueueRequest(url, status.Id);
+            bRef |= await registerer.QueueRequest(url, status.Id);
         }
         await client.Favourite(status.Id);
-        await client.PublishStatus($"""
-            @{status.Account.AccountName}
-            bot作成依頼を受け付けました。
-            順次作成しますので、しばらくお待ちください。
-            """, status.Visibility, status.Id);
+        if (bRef)
+        {
+            await client.PublishStatus($"""
+                @{status.Account.AccountName}
+                bot作成依頼を受け付けました。
+                順次作成しますので、しばらくお待ちください。
+                """, status.Visibility, status.Id);
+        }
     }
     var me = await client.GetCurrentUser();
     var convs = await client.GetConversations();
