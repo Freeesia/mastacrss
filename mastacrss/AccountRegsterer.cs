@@ -77,7 +77,7 @@ class AccountRegisterer
                 var token = await CreateBot(this.factory, this.tootAppToken, info, this.logger);
                 req = await context.UpdateAsNoTracking(request with { AccessToken = token });
             }
-                await this.verifyQueue.Writer.WriteAsync((req, info));
+            await this.verifyQueue.Writer.WriteAsync((req, info));
         }
     }
 
@@ -139,17 +139,28 @@ class AccountRegisterer
         if (request.AccessToken is null)
         {
             // 作成中じゃないけどアカウントが存在する場合は作成済みなので抜ける
-            var accounts = await client.SearchAccounts(profileInfo.Name);
-            // TODO: 別リクエストで承認待ならスルー
-            // TODO: 否認(Lock?Suspended?で表現)だったらその旨返す
-            if (accounts.Any(a => a.AccountName == profileInfo.Name))
+            var accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: profileInfo.Name);
+            if (accounts is [var account])
             {
                 logger.LogInformation($"Account @{profileInfo.Name} already exists. RSS: {profileInfo.Rss}");
-                await client.PublishStatus($"""
-                @{status.Account.AccountName}
-                依頼されたアカウントは @{profileInfo.Name} として作成済みです。
-                同一サイトで複数のRSSが存在する場合は個別に対応するので、しばらくお待ちください。
-                """, status.Visibility, status.Id);
+                var text = account switch
+                {
+                    { Confirmed: false } => $"""
+                        @{status.Account.AccountName}
+                        依頼されたサイトのアカウントは現在承認待ちです。
+                        以下のアカウントになる予定です。
+                        {account.Account!.ProfileUrl}
+                        """,
+                    { Disabled: true } => $"""
+                        @{status.Account.AccountName}
+                        依頼されたサイト {request.Url} のアカウント作成は却下されました。
+                        """,
+                    _ => $"""
+                        @{status.Account.AccountName}
+                        依頼されたサイトは @{profileInfo.Name} として作成済みです。
+                        """,
+                };
+                await client.PublishStatus(text, status.Visibility, status.Id);
                 await context.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
                 return false;
             }
