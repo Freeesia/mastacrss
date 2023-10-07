@@ -113,7 +113,12 @@ class AccountRegisterer
 
     private async Task<bool> RegistarAccountAsync(AccountContext context, AccountInfo request, CancellationToken cancellationToken = default)
     {
-        var status = await this.client.GetStatus(request.RequestId);
+        var status = await FallbackIfException(() => this.client.GetStatus(request.RequestId));
+        if (status is null)
+        {
+            request = await context.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
+            return false;
+        }
         var profileInfo = await FallbackIfException(
             () => ProfileInfo.FetchFromWebsite(factory, request.Url),
             async ex =>
