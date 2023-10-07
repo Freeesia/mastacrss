@@ -103,6 +103,11 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
         // apple-touch-iconの画像をダウンロードしてパスを取得する
         string? iconPath = null;
         var appleTouchIconLink = document.DocumentNode.SelectSingleNode("//link[@rel='apple-touch-icon']")?.GetAttributeValue("href", string.Empty);
+        if (Path.GetExtension(appleTouchIconLink) == ".ico")
+        {
+            appleTouchIconLink = document.DocumentNode.SelectSingleNode("//link[@rel='apple-touch-icon-precomposed']")?.GetAttributeValue("href", string.Empty);
+        }
+
         if (!string.IsNullOrEmpty(appleTouchIconLink))
         {
             iconPath = await httpClient.DownloadAsync(appleTouchIconLink);
