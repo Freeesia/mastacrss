@@ -37,6 +37,7 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
 
         // urlがルートだったら、RSSフィードのURLを取得して、ちがったらそのまま使う
         var rssUrl = url.AbsoluteUri;
+        var siteUrl = url;
         var feed = await FallbackIfException(() => FeedReader.ReadAsync(rssUrl), _ => Task.CompletedTask);
         if (feed is null)
         {
@@ -67,13 +68,12 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
             {
                 document.Load(st);
             }
-        }
-
-        // プロフィールに記載するWebサイトのURL
-        var siteUrl = new Uri(feed.Link, UriKind.RelativeOrAbsolute);
-        if (!siteUrl.IsAbsoluteUri)
-        {
-            siteUrl = new Uri(url, siteUrl);
+            // プロフィールに記載するWebサイトのURL
+            siteUrl = new Uri(feed.Link, UriKind.RelativeOrAbsolute);
+            if (!siteUrl.IsAbsoluteUri)
+            {
+                siteUrl = new Uri(url, siteUrl);
+            }
         }
 
         // YouTubeのチャンネルの場合、特殊処理する
