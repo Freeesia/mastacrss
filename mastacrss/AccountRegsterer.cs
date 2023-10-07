@@ -262,7 +262,7 @@ class AccountRegisterer
             email = $"mastodon+{profileInfo.Name}@studiofreesia.com",
             password = pwd.Next(),
             agreement = true,
-            locale = "ja"
+            locale = profileInfo.Lang,
         };
         HttpResponseMessage response;
         do
@@ -279,11 +279,7 @@ class AccountRegisterer
             }
         } while (!response.IsSuccessStatusCode);
         var cred = await response.Content.ReadFromJsonAsync<Token>() ?? throw new Exception("Failed to create account");
-        mstdnClient.DefaultRequestHeaders.Authorization = new("Bearer", cred.access_token);
-        logger.LogInformation($"Created account @{createAccountData.username}");
-        logger.LogInformation($"email: {createAccountData.email}");
-        logger.LogInformation($"password: {createAccountData.password}");
-        logger.LogInformation($"token: {cred.access_token}");
+        logger.LogInformation($"Created account @{createAccountData.username}, email: {createAccountData.email}, pass: {createAccountData.password}, token: {cred.access_token}");
         return cred.access_token;
     }
 
