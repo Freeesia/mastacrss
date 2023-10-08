@@ -143,7 +143,7 @@ class AccountRegisterer
             () => ProfileInfo.FetchFromWebsite(factory, request.Url),
             async ex =>
             {
-                logger.LogError(ex, $"Failed to fetch profile info from {request.Url}");
+                logger.LogWarning(ex, $"Failed to fetch profile info from {request.Url}");
                 await client.PublishStatus($"""
                         @{status.Account.AccountName}
                         以下のURLのフィード情報の取得に失敗しました。別のURLをお試しください。
