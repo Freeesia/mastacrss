@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 
 class AccountContext : DbContext
@@ -8,6 +8,15 @@ class AccountContext : DbContext
     public AccountContext(DbContextOptions options)
         : base(options)
     {
+        this.Database.GetDbConnection().StateChange += (_, args) =>
+        {
+            if (args.CurrentState != ConnectionState.Open)
+            {
+                return;
+            }
+
+            this.Database.ExecuteSqlRaw("PRAGMA busy_timeout = 5000;");
+        };
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
