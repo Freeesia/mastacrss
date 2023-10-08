@@ -12,7 +12,7 @@ using static SystemUtility;
 var app = ConsoleApp.CreateBuilder(args)
     .ConfigureServices(
         (c, s) => s.Configure<ConsoleOptions>(c.Configuration)
-            .AddDbContextFactory<AccountContext>(op => op.UseSqlite(c.Configuration.GetConnectionString("DefaultConnection")))
+            .AddDbContextFactory<AccountContext>(op => op.UseSqlite(c.Configuration.GetConnectionString("DefaultConnection"), b => b.CommandTimeout(60)))
             .AddSingleton<AccountRegisterer>()
             .AddHttpClient(Mastodon, (s, c) =>
             {
