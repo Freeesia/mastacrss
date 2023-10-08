@@ -189,11 +189,13 @@ class AccountRegisterer
                 await context.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
                 return false;
             }
+            logger.LogInformation($"{profileInfo.Name}: トークンがないので作成キューに積む");
             await this.createQueue.Writer.WriteAsync((request, profileInfo), cancellationToken);
         }
-        // BodIDが取れなければこのリクエストで承認待ち
-        else if (request.BotId is null)
+        // トークンあるけど終わってなければ作成後キューに積む
+        else if (!request.Finished)
         {
+            logger.LogInformation($"{profileInfo.Name}: 全部終わってないので作成後キューに積む");
             await this.verifyQueue.Writer.WriteAsync((request, profileInfo), cancellationToken);
         }
         return true;
