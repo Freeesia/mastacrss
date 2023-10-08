@@ -63,19 +63,22 @@ class AccountRegisterer
 
     private async Task StartCreateLoop()
     {
-        using var context = await this.contextFactory.CreateDbContextAsync();
-        await context.Database.EnsureCreatedAsync();
-        foreach (var info in context.AccountInfos.Where(a => !a.Finished))
+        using (var context = await this.contextFactory.CreateDbContextAsync())
         {
-            await RegistarAccountAsync(context, info);
+            await context.Database.EnsureCreatedAsync();
+            foreach (var info in context.AccountInfos.Where(a => !a.Finished))
+            {
+                await RegistarAccountAsync(context, info);
+            }
         }
         await foreach (var (request, info) in this.createQueue.Reader.ReadAllAsync())
         {
             var req = request;
             if (req.AccessToken is null)
             {
+                using var context = await this.contextFactory.CreateDbContextAsync();
                 var token = await CreateBot(this.factory, this.tootAppToken, info, this.logger);
-                req = await context.UpdateAsNoTracking(request with { AccessToken = token });
+                req = await context.UpdateAsNoTracking(req with { AccessToken = token });
                 var accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: info.Name);
                 var account = accounts.Single();
                 await this.client.PublishStatus($"""
