@@ -1,8 +1,8 @@
-using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
+using EnsureThat;
 using Mastonet;
 using Mastonet.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -66,20 +66,29 @@ class AccountRegisterer
         using (var context = await this.contextFactory.CreateDbContextAsync())
         {
             await context.Database.EnsureCreatedAsync();
-            foreach (var info in context.AccountInfos.Where(a => !a.Finished))
+            var infos = await context.AccountInfos.Where(a => !a.Finished).ToArrayAsync();
+            foreach (var info in infos)
             {
-                await RegistarAccountAsync(context, info);
+                try
+                {
+                    await RegistarAccountAsync(context, info);
+                }
+                catch (Exception e)
+                {
+                    SentrySdk.CaptureException(e);
+                }
             }
         }
         await foreach (var (request, info) in this.createQueue.Reader.ReadAllAsync())
         {
             var req = request;
-            if (req.AccessToken is null)
+            var accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: info.Name);
+            if (accounts is [])
             {
                 using var context = await this.contextFactory.CreateDbContextAsync();
                 var token = await CreateBot(this.factory, this.tootAppToken, info, this.logger);
                 req = await context.UpdateAsNoTracking(req with { AccessToken = token });
-                var accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: info.Name);
+                accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: info.Name);
                 var account = accounts.Single();
                 await this.client.PublishStatus($"""
                     依頼サイト: {info.Link}
@@ -136,6 +145,7 @@ class AccountRegisterer
 
     private async Task<bool> RegistarAccountAsync(AccountContext context, AccountInfo request, CancellationToken cancellationToken = default)
     {
+        Ensure.That(request.Finished).IsFalse();
         var status = await FallbackIfException(() => this.client.GetStatus(request.RequestId));
         if (status is null)
         {
@@ -160,48 +170,50 @@ class AccountRegisterer
             await context.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
             return false;
         }
-        request = request with { Name = profileInfo.Name };
-        await context.UpdateAsNoTracking(request, cancellationToken);
+        request = await context.UpdateAsNoTracking(request with { Name = profileInfo.Name }, cancellationToken);
 
-        // トークンがなければこのリクエストでアカウント作ってない
+        var accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: profileInfo.Name);
+        // アカウントがなければ作成キューに積む
+        // (一度作られても確認遅れると消えるので、アクセストークンあってもアカウントがないときがある)
+        if (accounts is [])
+        {
+            logger.LogInformation($"{profileInfo.Name}: アカウントがないので作成キューに積む");
+            await this.createQueue.Writer.WriteAsync((request, profileInfo), cancellationToken);
+            return true;
+        }
+        var account = accounts.Single();
+        // アクセストークンがないってことは新規リクエストなので、既存の結果を返す
         if (request.AccessToken is null)
         {
-            // 作成中じゃないけどアカウントが存在する場合は作成済みなので抜ける
-            var accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: profileInfo.Name);
-            if (accounts is [var account])
+            logger.LogInformation($"Account @{profileInfo.Name} already exists. RSS: {profileInfo.Rss}");
+            var text = account switch
             {
-                logger.LogInformation($"Account @{profileInfo.Name} already exists. RSS: {profileInfo.Rss}");
-                var text = account switch
-                {
-                    { Confirmed: false } => $"""
-                        @{status.Account.AccountName}
-                        依頼されたサイトのアカウントは現在承認待ちです。
-                        以下のアカウントになる予定です。
-                        {account.Account!.ProfileUrl}
-                        """,
-                    { Disabled: true } => $"""
-                        @{status.Account.AccountName}
-                        依頼されたサイト {request.Url} のアカウント作成は却下されました。
-                        """,
-                    _ => $"""
-                        @{status.Account.AccountName}
-                        依頼されたサイトは @{profileInfo.Name} として作成済みです。
-                        """,
-                };
-                await client.PublishStatus(text, status.Visibility, status.Id);
-                await context.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
-                return false;
-            }
-            logger.LogInformation($"{profileInfo.Name}: トークンがないので作成キューに積む");
-            await this.createQueue.Writer.WriteAsync((request, profileInfo), cancellationToken);
+                { Confirmed: false } => $"""
+                    @{status.Account.AccountName}
+                    依頼されたサイトのアカウントは現在承認待ちです。
+                    以下のアカウントになる予定です。
+                    {account.Account!.ProfileUrl}
+                    """,
+                { Disabled: true } => $"""
+                    @{status.Account.AccountName}
+                    依頼されたサイト {request.Url} のアカウント作成は却下されました。
+                    """,
+                _ => $"""
+                    @{status.Account.AccountName}
+                    依頼されたサイトは @{profileInfo.Name} として作成済みです。
+                    """,
+            };
+            await client.PublishStatus(text, status.Visibility, status.Id);
+            await context.UpdateAsNoTracking(request with { Finished = true }, cancellationToken);
+            return false;
         }
-        // トークンあるけど終わってなければ作成後キューに積む
-        else if (!request.Finished)
+        // アクセストークンがある場合は作成後キューに積む
+        else
         {
             logger.LogInformation($"{profileInfo.Name}: 全部終わってないので作成後キューに積む");
             await this.verifyQueue.Writer.WriteAsync((request, profileInfo), cancellationToken);
+            return true;
         }
-        return true;
     }
 
     private async Task PostVerify(AccountInfo request, ProfileInfo info)
