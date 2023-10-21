@@ -36,11 +36,11 @@ jobs:
         context: .
         build-args: |
           Repository=${{ github.repository }}
-          Version=${{ env.fullSemVer }}
-          AssemblyVersion=${{ env.assemblySemVer }}
-          FileVersion=${{ env.assemblySemFileVer }}
-          InformationalVersion=${{ env.informationalVersion }}
+          Version=${{ env.GitVersion_FullSemVer }}
+          AssemblyVersion=${{ env.GitVersion_AssemblySemVer }}
+          FileVersion=${{ env.GitVersion_AssemblySemFileVer }}
+          InformationalVersion=${{ env.GitVersion_InformationalVersion }}
         labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
         push: ${{ github.ref_name == 'master' }}
-        tags: ghcr.io/${{ env.image_tag }}:${{ env.fullSemVer }},ghcr.io/${{ env.image_tag }}:dev
+        tags: ghcr.io/${{ env.image_tag }}:${{ env.GitVersion_FullSemVer }},ghcr.io/${{ env.image_tag }}:dev
