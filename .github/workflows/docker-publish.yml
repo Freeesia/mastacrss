@@ -15,6 +15,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: docker/setup-buildx-action@v3
+    - uses: gittools/actions/gitversion/execute@v0
     - run: |
         IMAGE_ID=${{ github.repository }}
         IMAGE_ID=${IMAGE_ID,,}
@@ -30,7 +31,11 @@ jobs:
         context: .
         build-args: |
           Repository=${{ github.repository }}
-        labels: |
+          Version=${{ env.fullSemVer }}
+          AssemblyVersion=${{ env.assemblySemVer }}
+          FileVersion=${{ env.assemblySemFileVer }}
+          InformationalVersion=${{ env.informationalVersion }}
+      labels: |
           org.opencontainers.image.source=https://github.com/${{ github.repository }}
         push: ${{ github.ref_name == 'master' }}
-        tags: ghcr.io/${{ env.image_tag }}:${{ github.sha }},ghcr.io/${{ env.image_tag }}:dev
+        tags: ghcr.io/${{ env.image_tag }}:${{ env.fullSemVer }},ghcr.io/${{ env.image_tag }}:dev
