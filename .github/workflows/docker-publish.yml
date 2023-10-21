@@ -35,7 +35,7 @@ jobs:
           AssemblyVersion=${{ env.assemblySemVer }}
           FileVersion=${{ env.assemblySemFileVer }}
           InformationalVersion=${{ env.informationalVersion }}
-      labels: |
-          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+        labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
         push: ${{ github.ref_name == 'master' }}
         tags: ghcr.io/${{ env.image_tag }}:${{ env.fullSemVer }},ghcr.io/${{ env.image_tag }}:dev
