@@ -106,9 +106,12 @@ class AccountRegisterer
             try
             {
                 var accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: info.Name);
-                var account = accounts.Single();
-                switch (account)
+                switch (accounts.SingleOrDefault())
                 {
+                    case null:
+                        this.logger.LogInformation($"{info.Name}: アカウントがないので作成キューに積む");
+                        await this.createQueue.Writer.WriteAsync((request, info));
+                        break;
                     case { Disabled: true }:
                         using (var context = await this.contextFactory.CreateDbContextAsync())
                         {
@@ -126,8 +129,8 @@ class AccountRegisterer
                     case { Confirmed: true } when request.BotId is not null:
                         await PostVerify(request, info);
                         break;
-                    case { Confirmed: true }:
-                        await PostVerify(request with { BotId = account.Id }, info);
+                    case { Confirmed: true, Id: var id }:
+                        await PostVerify(request with { BotId = id }, info);
                         break;
                     default:
                         this.logger.LogInformation($"承認待ち: {info.Name}");
