@@ -44,3 +44,11 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
         push: ${{ github.ref_name == 'master' }}
         tags: ghcr.io/${{ env.image_tag }}:${{ env.GitVersion_FullSemVer }},ghcr.io/${{ env.image_tag }}:dev
+    - uses: getsentry/action-release@v1
+      env:
+        SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      with:
+        environment: production
+        version: ${{ env.GitVersion_FullSemVer }}
