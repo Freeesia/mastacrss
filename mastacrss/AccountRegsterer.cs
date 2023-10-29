@@ -27,6 +27,7 @@ class AccountRegisterer
     private readonly Uri mastodonUrl;
     private readonly string configPath;
     private readonly string tootAppToken;
+    private readonly string monitoringToken;
     private readonly string dispNamePrefix;
     private readonly MastodonClient client;
 
@@ -38,6 +39,7 @@ class AccountRegisterer
         var (mastodonUrl, tootAppToken, monitoringToken, configPath, _, dispNamePrefix) = options.Value;
         this.mastodonUrl = mastodonUrl;
         this.tootAppToken = tootAppToken;
+        this.monitoringToken = monitoringToken;
         this.configPath = configPath;
         this.dispNamePrefix = dispNamePrefix;
         this.client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken, factory.CreateClient());
@@ -81,21 +83,28 @@ class AccountRegisterer
         }
         await foreach (var (request, info) in this.createQueue.Reader.ReadAllAsync())
         {
-            var req = request;
-            var accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: info.Name);
-            if (accounts is [])
+            try
             {
-                using var context = await this.contextFactory.CreateDbContextAsync();
-                var token = await CreateBot(this.factory, this.tootAppToken, info, this.logger);
-                req = await context.UpdateAsNoTracking(req with { AccessToken = token });
-                accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: info.Name);
-                var account = accounts.Single();
-                await this.client.PublishStatus($"""
-                    依頼サイト: {info.Link}
-                    {new Uri(this.mastodonUrl, $"/admin/accounts/{account.Id}")}
-                    """, Visibility.Direct);
+                var req = request;
+                var accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: info.Name);
+                if (accounts is [])
+                {
+                    using var context = await this.contextFactory.CreateDbContextAsync();
+                    var token = await CreateBot(info);
+                    req = await context.UpdateAsNoTracking(req with { AccessToken = token });
+                    accounts = await client.GetAdminAccounts(new() { Limit = 1 }, AdminAccountOrigin.Local, username: info.Name);
+                    var account = accounts.Single();
+                    await this.client.PublishStatus($"""
+                        依頼サイト: {info.Link}
+                        {new Uri(this.mastodonUrl, $"/admin/accounts/{account.Id}")}
+                        """, Visibility.Direct);
+                }
+                await this.verifyQueue.Writer.WriteAsync((req, info));
             }
-            await this.verifyQueue.Writer.WriteAsync((req, info));
+            catch (Exception e)
+            {
+                SentrySdk.CaptureException(e);
+            }
         }
     }
 
@@ -275,10 +284,10 @@ class AccountRegisterer
         await context.UpdateAsNoTracking(request with { Finished = true });
     }
 
-    static async Task<string> CreateBot(IHttpClientFactory factory, string appAccessToken, ProfileInfo profileInfo, ILogger logger)
+    async Task<string> CreateBot(ProfileInfo profileInfo)
     {
-        using var mstdnClient = factory.CreateClient(Mastodon);
-        mstdnClient.DefaultRequestHeaders.Authorization = new("Bearer", appAccessToken);
+        using var mstdnClient = this.factory.CreateClient(Mastodon);
+        mstdnClient.DefaultRequestHeaders.Authorization = new("Bearer", this.tootAppToken);
         // 1. アカウントの作成
         var pwd = new Password(32);
         // name = new Password(6).IncludeLowercase().Next();
@@ -298,6 +307,25 @@ class AccountRegisterer
             {
                 logger.LogInformation("Too many create requests. Waiting for 30 minutes...");
                 await Task.Delay(TimeSpan.FromMinutes(30));
+            }
+            else if (response.StatusCode == HttpStatusCode.UnprocessableEntity)
+            {
+                logger.LogInformation("アカウント作れなかったので、メールアドレスのブロック確認する");
+                using var adminClient = factory.CreateClient(Mastodon);
+                adminClient.DefaultRequestHeaders.Authorization = new("Bearer", this.monitoringToken);
+                var testRes = await adminClient.PostAsJsonAsync("/api/v1/admin/canonical_email_blocks/test", new { createAccountData.email });
+                testRes.EnsureSuccessStatusCode();
+                var list = await testRes.Content.ReadFromJsonAsync<CanonicalEmail[]>();
+                if (list is [var can])
+                {
+                    var res = await adminClient.DeleteAsync($"/api/v1/admin/canonical_email_blocks/{can.id}");
+                    res.EnsureSuccessStatusCode();
+                    logger.LogInformation("メールアドレスのブロック解除成功");
+                }
+                else
+                {
+                    response.EnsureSuccessStatusCode();
+                }
             }
             else
             {
@@ -388,3 +416,4 @@ record CredentialAccount(string id);
 record AppCredentials(string client_id, string client_secret, string vapid_key);
 record BotInfo(string Id, string Token);
 record SetupTarget(bool Avatar = true, bool Header = true, bool Bio = true, bool Tags = true, bool FixedInfo = true);
+record CanonicalEmail(int id, string canonical_email_hash);
