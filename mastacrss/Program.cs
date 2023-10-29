@@ -1,4 +1,5 @@
-﻿using HtmlAgilityPack;
+﻿using System.Reflection;
+using HtmlAgilityPack;
 using mastacrss;
 using Mastonet;
 using Mastonet.Entities;
@@ -26,6 +27,17 @@ app.AddCommand("test", Test);
 app.AddCommand("config-test", ConfigTest);
 app.AddCommand("setup", Setup);
 app.AddCommand("setup-all", SetupAll);
+
+using (app.Logger.BeginScope("startup"))
+{
+    app.Logger.LogInformation($"App: {app.Environment.ApplicationName}");
+    app.Logger.LogInformation($"Env: {app.Environment.EnvironmentName}");
+    var assembly = Assembly.GetExecutingAssembly();
+    var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? assembly.GetName().Version?.ToString();
+    app.Logger.LogInformation($"Ver: {version}");
+}
+
 await app.RunAsync();
 
 static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, AccountRegisterer registerer)

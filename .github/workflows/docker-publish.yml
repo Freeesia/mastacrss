@@ -51,4 +51,4 @@ jobs:
         SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       with:
         environment: production
-        version: ${{ env.GitVersion_FullSemVer }}
+        version: ${{ env.GitVersion_InformationalVersion }}
