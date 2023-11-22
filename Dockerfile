@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build-env
 WORKDIR /app
 COPY ./mastacrss .
 ARG Version
@@ -12,12 +12,11 @@ RUN dotnet publish -c Release -o out -r linux-x64 \
     -p:InformationalVersion=$InformationalVersion
 
 # Build runtime image
-FROM mcr.microsoft.com/dotnet/runtime:7.0
+FROM mcr.microsoft.com/dotnet/runtime:8.0
 WORKDIR /app
 RUN apt-get update \
     && apt-get -y install supervisor \
-    && rm -rf /var/lib/apt/lists/* \
-    && sed -i 's/DEFAULT@SECLEVEL=2/DEFAULT@SECLEVEL=1/g' /etc/ssl/openssl.cnf
+    && rm -rf /var/lib/apt/lists/*
 
 # supervisord.confをコピー
 COPY docker/supervisord.conf /etc/supervisord.conf
