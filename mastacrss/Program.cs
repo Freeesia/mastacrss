@@ -124,43 +124,44 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
 
 static async Task ConfigTest(IOptions<ConsoleOptions> options, IHttpClientFactory factory)
 {
-    var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
-    for (int i = 0; i < config.Sources.Count; i++)
-    {
-        var source = config.Sources[i];
-        try
-        {
-            var info = await ProfileInfo.FetchFromWebsite(factory, new(source.Source.Feed));
-            config.Sources[i] = source with { Schedule = new($"{(int)info.Interval.TotalMinutes}m") };
-        }
-        catch { }
-    }
-    await config.Save(options.Value.ConfigPath);
+// #pragma warning disable CS0612
+//     var oldConfig = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
+// #pragma warning restore CS0612
+//     var newConfig = new MastakerConfig(oldConfig.Sources[0].Dest.Mastodon.Url, null, []);
+//     foreach (var feed in oldConfig.Sources)
+//     {
+//         var xpath = feed.Source.RemoteXpathTags;
+//         var ignores = feed.Source.RemoteKeyword.Ignore ?? [];
+//         var tag = !string.IsNullOrEmpty(xpath) || ignores.Any() ? new TagConfig(null, ignores, null, xpath) : null;
+//         newConfig.Feeds.Add(new(feed.Id, feed.Source.Feed, feed.Dest.Mastodon.Token, tag));
+//     }
+    var newConfig = await MastakerConfig.Load(options.Value.ConfigPath);
+    await newConfig.Save(options.Value.ConfigPath + "_new");
 }
 
 static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, Uri uri, string accessToken)
 {
     var info = await ProfileInfo.FetchFromWebsite(factory, uri);
     await AccountRegisterer.SetupAccount(factory, accessToken, info, options.Value.DispNamePrefix, logger);
-    var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
-    config.AddSource(info.Name, info.Rss, options.Value.MastodonUrl.AbsoluteUri, accessToken, info.Interval);
+    var config = await MastakerConfig.Load(options.Value.ConfigPath);
+    config.Feeds.Add(new(info.Name, info.Rss, accessToken));
     await config.Save(options.Value.ConfigPath);
 }
 
 static async Task SetupAll(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory)
 {
-    var config = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
-    foreach (var source in config.Sources)
+    var config = await MastakerConfig.Load(options.Value.ConfigPath);
+    foreach (var source in config.Feeds)
     {
         try
         {
-            var profile = await ProfileInfo.FetchFromWebsite(factory, new Uri(source.Source.Feed));
+            var profile = await ProfileInfo.FetchFromWebsite(factory, new Uri(source.Url));
             profile = profile with { Name = source.Id };
             logger.LogInformation(profile.ToString());
-            await AccountRegisterer.SetupAccount(factory, source.Dest.Mastodon.Token, profile, options.Value.DispNamePrefix, logger);
+            await AccountRegisterer.SetupAccount(factory, source.Token, profile, options.Value.DispNamePrefix, logger);
             await Task.Delay(TimeSpan.FromSeconds(30));
         }
-        catch (System.Exception)
+        catch (Exception)
         {
             logger.LogWarning($"Failed to setup {source.Id}");
         }

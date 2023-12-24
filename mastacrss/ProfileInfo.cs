@@ -119,11 +119,11 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
             .SelectNodes("//meta[starts-with(@property, 'og:') and contains(@property, ':tag')]")?
             .Select(x => x.GetAttributeValue("content", string.Empty))
             .Where(x => !string.IsNullOrEmpty(x))
-            .ToArray() ?? Array.Empty<string>();
+            .ToArray() ?? [];
 
         // og:*:tagがなかったら、keywordsを取得する
         // keywordsは、カンマ区切りの文字列か、スペース区切りの文字列か、だったり最後に...がついてたりするので低優先
-        if (!tags.Any())
+        if (tags.Length == 0)
         {
             // keywordsを取得して、それをタグに設定する
             tags = document.DocumentNode.SelectSingleNode("//meta[@name='keywords']")?
@@ -131,7 +131,7 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
                 .Split(',')
                 .Select(x => x.Trim())
                 .Where(x => !string.IsNullOrEmpty(x))
-                .ToArray() ?? Array.Empty<string>();
+                .ToArray() ?? [];
             if (tags is [{ Length: > 0 } k])
             {
                 tags = k.Split(' ')
