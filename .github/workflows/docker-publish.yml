@@ -44,6 +44,8 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
         push: ${{ github.ref_name == 'master' }}
         tags: ghcr.io/${{ env.image_tag }}:${{ env.GitVersion_FullSemVer }},ghcr.io/${{ env.image_tag }}:dev
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
     - uses: getsentry/action-release@v1
       if: github.ref == 'refs/heads/master'
       env:
