@@ -247,10 +247,10 @@ class AccountRegisterer
             this.logger.LogInformation($"アカウントセットアップ完了: @{info.Name}");
         }
 
-        var config = await TomatoShriekerConfig.Load(configPath);
-        if (!config.Sources.Any(s => s.Id == info.Name))
+        var config = await MastakerConfig.Load(configPath);
+        if (!config.Feeds.Any(s => s.Id == info.Name))
         {
-            config.AddSource(info.Name, info.Rss, mastodonUrl.AbsoluteUri, token, info.Interval);
+            config.Feeds.Add(new(info.Name, info.Rss, token));
             await config.Save(configPath);
             logger.LogInformation($"Saved config to {configPath}");
         }

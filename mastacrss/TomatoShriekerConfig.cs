@@ -4,6 +4,7 @@ using VYaml.Serialization;
 
 namespace mastacrss;
 
+[Obsolete]
 [YamlObject]
 partial record TomatoShriekerConfig
 {
@@ -28,21 +29,30 @@ partial record TomatoShriekerConfig
         => this.Sources.Add(new(name, new(new(), new(mastodonUrl, mastodonToken), new[] { name }), new($"{(int)interval.TotalMinutes}m"), new(feed, new(true, null, null))));
 }
 
+[Obsolete]
 [YamlObject]
 partial record SourceInfo(string Id, Dest Dest, Schedule Schedule, Source Source);
+[Obsolete]
 [YamlObject]
 partial record Source(string Feed, [property: YamlMember("remote_keyword")] RemoteKeyword RemoteKeyword, [property: YamlMember("remote_xpath_tags")] string? RemoteXpathTags = null);
+[Obsolete]
 [YamlObject]
 partial record RemoteKeyword(bool Enable, IReadOnlyList<string>? Ignore, [property: YamlMember("replace_rules")] IReadOnlyList<ReplaceRule>? ReplaceRules);
+[Obsolete]
 [YamlObject]
 partial record ReplaceRule(string Pattern, string Replace);
+[Obsolete]
 [YamlObject]
 partial record Dest(AccountDest Account, MastodonDest Mastodon, IReadOnlyList<string>? Tags);
+[Obsolete]
 [YamlObject]
 partial record AccountDest(bool Bot = true);
+[Obsolete]
 [YamlObject]
 partial record MastodonDest(string Url, string Token);
+[Obsolete]
 [YamlObject]
 partial record CryptInfo(string Password);
+[Obsolete]
 [YamlObject]
 partial record Schedule(string? Every = "20m");
