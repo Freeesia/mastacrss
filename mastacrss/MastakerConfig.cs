@@ -1,4 +1,3 @@
-using System.Buffers;
 using VYaml.Annotations;
 using VYaml.Serialization;
 
@@ -15,10 +14,10 @@ partial record MastakerConfig([property: YamlMember("base_url")] string BaseUrl,
 
     public async ValueTask Save(string path)
     {
-        var writer = new ArrayBufferWriter<byte>();
-        YamlSerializer.Serialize(writer, this);
-        using var stream = File.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        await stream.WriteAsync(writer.WrittenMemory);
+        var yaml = YamlSerializer.SerializeToString(this);
+        // mastakerがnullを受け付けないので削除
+        yaml = yaml.Replace(": null", ":");
+        await File.WriteAllTextAsync(path, yaml);
     }
 }
 
