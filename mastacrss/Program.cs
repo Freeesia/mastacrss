@@ -20,7 +20,9 @@ var app = ConsoleApp.CreateBuilder(args)
                 var op = s.GetRequiredService<IOptions<ConsoleOptions>>();
                 c.BaseAddress = op.Value.MastodonUrl;
             }))
-    .ConfigureLogging((c, l) => l.AddConfiguration(c.Configuration).AddSentry())
+    // Sentryを無効化するために空のDSNを設定する必要があるけど、環境変数からは空文字を設定できないので、ここで設定する
+    // 環境変数でDNSが設定されているときはそちらが優先されるはず
+    .ConfigureLogging((c, l) => l.AddConfiguration(c.Configuration).AddSentry(op => op.Dsn = ""))
     .Build();
 app.AddRootCommand(Run);
 app.AddCommand("test", Test);
@@ -124,17 +126,17 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
 
 static async Task ConfigTest(IOptions<ConsoleOptions> options, IHttpClientFactory factory)
 {
-// #pragma warning disable CS0612
-//     var oldConfig = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
-// #pragma warning restore CS0612
-//     var newConfig = new MastakerConfig(oldConfig.Sources[0].Dest.Mastodon.Url, null, []);
-//     foreach (var feed in oldConfig.Sources)
-//     {
-//         var xpath = feed.Source.RemoteXpathTags;
-//         var ignores = feed.Source.RemoteKeyword.Ignore ?? [];
-//         var tag = !string.IsNullOrEmpty(xpath) || ignores.Any() ? new TagConfig(null, ignores, null, xpath) : null;
-//         newConfig.Feeds.Add(new(feed.Id, feed.Source.Feed, feed.Dest.Mastodon.Token, tag));
-//     }
+    // #pragma warning disable CS0612
+    //     var oldConfig = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
+    // #pragma warning restore CS0612
+    //     var newConfig = new MastakerConfig(oldConfig.Sources[0].Dest.Mastodon.Url, null, []);
+    //     foreach (var feed in oldConfig.Sources)
+    //     {
+    //         var xpath = feed.Source.RemoteXpathTags;
+    //         var ignores = feed.Source.RemoteKeyword.Ignore ?? [];
+    //         var tag = !string.IsNullOrEmpty(xpath) || ignores.Any() ? new TagConfig(null, ignores, null, xpath) : null;
+    //         newConfig.Feeds.Add(new(feed.Id, feed.Source.Feed, feed.Dest.Mastodon.Token, tag));
+    //     }
     var newConfig = await MastakerConfig.Load(options.Value.ConfigPath);
     await newConfig.Save(options.Value.ConfigPath + "_new");
 }
