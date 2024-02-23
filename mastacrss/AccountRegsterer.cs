@@ -9,7 +9,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PasswordGenerator;
-using Sentry;
 using static SystemUtility;
 
 namespace mastacrss;
@@ -169,11 +168,12 @@ class AccountRegisterer
             async ex =>
             {
                 logger.LogWarning(ex, $"Failed to fetch profile info from {request.Url}");
-                await client.PublishStatus($"""
-                        @{status.Account.AccountName}
-                        以下のURLのフィード情報の取得に失敗しました。別のURLをお試しください。
-                        {request.Url}
-                        """, status.Visibility, status.Id);
+                var text = $"""
+                    @{status.Account.AccountName}
+                    以下のURLのフィード情報の取得に失敗しました。別のURLをお試しください。
+                    {request.Url}
+                    """;
+                await client.PublishStatus(text, status.Visibility, status.Id);
             });
 
         // RSS情報取れなければ終了
