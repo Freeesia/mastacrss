@@ -29,7 +29,8 @@
 				"GitHub.vscode-pull-request-github",
 				"VisualStudioExptTeam.vscodeintellicode",
 				"humao.rest-client",
-				"formulahendry.dotnet-test-explorer"
+				"formulahendry.dotnet-test-explorer",
+				"aliasadidev.nugetpackagemanagergui"
 			]
 		}
 	}
