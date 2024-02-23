@@ -15,4 +15,5 @@ bin/
 obj/
 .env
 local.yml
+mastaker.yml
 *.db*
