@@ -3,13 +3,15 @@ using VYaml.Serialization;
 
 namespace mastacrss;
 
-[YamlObject]
-partial record MastakerConfig([property: YamlMember("base_url")] string BaseUrl, TagConfig? Tag, IList<FeedConfig> Feeds)
+[YamlObject(NamingConvention.SnakeCase)]
+partial record MastakerConfig(string BaseUrl, TagConfig? Tag, IList<FeedConfig> Feeds)
 {
     public static async ValueTask<MastakerConfig> Load(string path)
     {
         using var stream = File.OpenRead(path);
-        return await YamlSerializer.DeserializeAsync<MastakerConfig>(stream).ConfigureAwait(false);
+        var options = YamlSerializerOptions.Standard;
+        return await YamlSerializer.DeserializeAsync<MastakerConfig>(stream, options)
+            .ConfigureAwait(false);
     }
 
     public async ValueTask Save(string path)
@@ -21,8 +23,8 @@ partial record MastakerConfig([property: YamlMember("base_url")] string BaseUrl,
     }
 }
 
-[YamlObject]
+[YamlObject(NamingConvention.SnakeCase)]
 partial record FeedConfig(string Id, string Url, string Token, TagConfig? Tag = null);
 
-[YamlObject]
+[YamlObject(NamingConvention.SnakeCase)]
 partial record TagConfig(IReadOnlyList<string>? Always, IReadOnlyList<string>? Ignore, IReadOnlyList<string>? Replace, string? Xpath);
