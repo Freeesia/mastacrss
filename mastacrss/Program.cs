@@ -78,7 +78,11 @@ using (var sp = serviceProvider.CreateScope())
 }
 await app.RunAsync(args);
 
-static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, AccountRegisterer registerer)
+static async Task Run(
+    [FromServices] ILogger<Program> logger,
+    [FromServices] IOptions<ConsoleOptions> options,
+    [FromServices] IHttpClientFactory factory,
+    [FromServices] AccountRegisterer registerer)
 {
     var (mastodonUrl, _, monitoringToken, _, reactiveTag, _) = options.Value;
     var client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken, factory.CreateClient());
@@ -138,7 +142,12 @@ static IEnumerable<Uri> GetUrls(string? content)
         ?? Enumerable.Empty<Uri>();
 }
 
-static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, AccountContext accountContext, Uri uri)
+static async Task Test(
+    [FromServices] ILogger<Program> logger,
+    [FromServices] IOptions<ConsoleOptions> options,
+    [FromServices] IHttpClientFactory factory,
+    [FromServices] AccountContext accountContext,
+    Uri uri)
 {
     var info = await ProfileInfo.FetchFromWebsite(factory, uri);
     logger.LogInformation(info.ToString());
@@ -160,7 +169,9 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
     // await config.Save(options.Value.ConfigPath);
 }
 
-static async Task ConfigTest(IOptions<ConsoleOptions> options, IHttpClientFactory factory)
+static async Task ConfigTest(
+    [FromServices] IOptions<ConsoleOptions> options,
+    [FromServices] IHttpClientFactory factory)
 {
     // #pragma warning disable CS0612
     //     var oldConfig = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
@@ -177,7 +188,12 @@ static async Task ConfigTest(IOptions<ConsoleOptions> options, IHttpClientFactor
     await newConfig.Save(options.Value.ConfigPath + "_new");
 }
 
-static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, Uri uri, string accessToken)
+static async Task Setup(
+    [FromServices] ILogger<Program> logger,
+    [FromServices] IOptions<ConsoleOptions> options,
+    [FromServices] IHttpClientFactory factory,
+    Uri uri,
+     string accessToken)
 {
     var info = await ProfileInfo.FetchFromWebsite(factory, uri);
     await AccountRegisterer.SetupAccount(factory, accessToken, info, options.Value.DispNamePrefix, logger);
@@ -186,7 +202,10 @@ static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> option
     await config.Save(options.Value.ConfigPath);
 }
 
-static async Task SetupAll(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory)
+static async Task SetupAll(
+    [FromServices] ILogger<Program> logger,
+    [FromServices] IOptions<ConsoleOptions> options,
+    [FromServices] IHttpClientFactory factory)
 {
     var config = await MastakerConfig.Load(options.Value.ConfigPath);
     foreach (var source in config.Feeds)
