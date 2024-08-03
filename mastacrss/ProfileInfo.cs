@@ -6,7 +6,8 @@ using System.Text.RegularExpressions;
 using CodeHollow.FeedReader;
 using CodeHollow.FeedReader.Feeds;
 using HtmlAgilityPack;
-using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
 using static SystemUtility;
 
 partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath, string Title, string Description, string Lang, string Link, string Rss, string[] Keywords, TimeSpan Interval)
@@ -157,9 +158,9 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
         // アイコン画像にRSSの画像を重ねる
         if (File.Exists(iconPath))
         {
-            using Image baseImage = Image.Load(iconPath);
-            using Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("mastacrss.feed-icon-128x128.png") ?? throw new InvalidOperationException("feed-icon-128x128.png not found");
-            using Image overlayImage = Image.Load(stream);
+            using var baseImage = Image.Load(iconPath);
+            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("mastacrss.feed-icon-128x128.png") ?? throw new InvalidOperationException("feed-icon-128x128.png not found");
+            using var overlayImage = Image.Load(stream);
             // 画像を正方形に切り抜く
             var size = Math.Min(baseImage.Width, baseImage.Height);
             var cropRectangle = new Rectangle((baseImage.Width - size) / 2, (baseImage.Height - size) / 2, size, size);
@@ -181,7 +182,7 @@ partial record ProfileInfo(string Name, string? IconPath, string? ThumbnailPath,
             baseImage.Mutate(x => x.DrawImage(overlayImage, new Point(positionX, positionY), 1f));
 
             // 結果の画像を保存
-            baseImage.Save(iconPath, new PngEncoder());
+            await baseImage.SaveAsPngAsync(iconPath);
         }
 
         var description = feed.Description;
