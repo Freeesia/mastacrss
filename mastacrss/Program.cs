@@ -1,4 +1,7 @@
-﻿using System.Reflection;
+﻿using System.Net.Sockets;
+using System.Net.WebSockets;
+using System.Reflection;
+using ConsoleAppFramework;
 using HtmlAgilityPack;
 using mastacrss;
 using Mastonet;
@@ -10,39 +13,76 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using static SystemUtility;
 
-var app = ConsoleApp.CreateBuilder(args)
-    .ConfigureServices(
-        (c, s) => s.Configure<ConsoleOptions>(c.Configuration)
-            .AddDbContextFactory<AccountContext>(op => op.UseSqlite(c.Configuration.GetConnectionString("DefaultConnection"), b => b.CommandTimeout(60)))
-            .AddSingleton<AccountRegisterer>()
-            .AddHttpClient(Mastodon, (s, c) =>
-            {
-                var op = s.GetRequiredService<IOptions<ConsoleOptions>>();
-                c.BaseAddress = op.Value.MastodonUrl;
-            }))
-    // Sentryを無効化するために空のDSNを設定する必要があるけど、環境変数からは空文字を設定できないので、ここで設定する
-    // 環境変数でDNSが設定されているときはそちらが優先されるはず
-    .ConfigureLogging((c, l) => l.AddConfiguration(c.Configuration).AddSentry(op => op.Dsn = ""))
+var configuration = new ConfigurationBuilder()
+    .AddEnvironmentVariables()
     .Build();
-app.AddRootCommand(Run);
-app.AddCommand("test", Test);
-app.AddCommand("config-test", ConfigTest);
-app.AddCommand("setup", Setup);
-app.AddCommand("setup-all", SetupAll);
 
-using (app.Logger.BeginScope("startup"))
+var services = new ServiceCollection();
+services.Configure<ConsoleOptions>(configuration)
+    .AddLogging(b => b
+        .AddConfiguration(configuration)
+        .AddSentry(op =>
+        {
+            // Sentryを無効化するために空のDSNを設定する必要があるけど、環境変数からは空文字を設定できないので、ここで設定する
+            // 環境変数でDNSが設定されているときはそちらが優先されるはず
+            op.Dsn = "";
+            op.SampleRate = 0.25f;
+            op.CaptureFailedRequests = true;
+            op.SetBeforeSend(BeforeSend);
+        })
+        .AddConsole())
+    .AddDbContextFactory<AccountContext>(op => op.UseSqlite(configuration.GetConnectionString("DefaultConnection"), b => b.CommandTimeout(60)))
+    .AddSingleton<AccountRegisterer>()
+    .AddHttpClient(Mastodon, (s, c) =>
+    {
+        var op = s.GetRequiredService<IOptions<ConsoleOptions>>();
+        c.BaseAddress = op.Value.MastodonUrl;
+    });
+
+static SentryEvent? BeforeSend(SentryEvent ev, SentryHint hint)
 {
-    app.Logger.LogInformation($"App: {app.Environment.ApplicationName}");
-    app.Logger.LogInformation($"Env: {app.Environment.EnvironmentName}");
+    // ConnectionRefusedの場合はサーバー起動してないので無視
+    if (ev.Exception is HttpRequestException &&
+        ev.Exception.InnerException is SocketException se &&
+        se.SocketErrorCode == SocketError.ConnectionRefused)
+    {
+        return null;
+    }
+    // ConnectionClosedPrematurelyの場合はたぶんサーバーが再起動したので、再接続する
+    else if (ev.Exception is WebSocketException wse &&
+        wse.WebSocketErrorCode == WebSocketError.ConnectionClosedPrematurely)
+    {
+        return null;
+    }
+    return ev;
+}
+
+using var serviceProvider = services.BuildServiceProvider();
+ConsoleApp.ServiceProvider = serviceProvider;
+
+var app = ConsoleApp.Create();
+app.Add("", Run);
+app.Add("test", Test);
+app.Add("config-test", ConfigTest);
+app.Add("setup", Setup);
+app.Add("setup-all", SetupAll);
+
+using (var sp = serviceProvider.CreateScope())
+{
+    var logger = sp.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    using var scope = logger.BeginScope("startup");
     var assembly = Assembly.GetExecutingAssembly();
     var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? assembly.GetName().Version?.ToString();
-    app.Logger.LogInformation($"Ver: {version}");
+    logger.LogInformation($"Ver: {version}");
 }
+await app.RunAsync(args);
 
-await app.RunAsync();
-
-static async Task Run(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, AccountRegisterer registerer)
+static async Task Run(
+    [FromServices] ILogger<Program> logger,
+    [FromServices] IOptions<ConsoleOptions> options,
+    [FromServices] IHttpClientFactory factory,
+    [FromServices] AccountRegisterer registerer)
 {
     var (mastodonUrl, _, monitoringToken, _, reactiveTag, _) = options.Value;
     var client = new MastodonClient(mastodonUrl.DnsSafeHost, monitoringToken, factory.CreateClient());
@@ -102,7 +142,12 @@ static IEnumerable<Uri> GetUrls(string? content)
         ?? Enumerable.Empty<Uri>();
 }
 
-static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, AccountContext accountContext, Uri uri)
+static async Task Test(
+    [FromServices] ILogger<Program> logger,
+    [FromServices] IOptions<ConsoleOptions> options,
+    [FromServices] IHttpClientFactory factory,
+    [FromServices] AccountContext accountContext,
+    Uri uri)
 {
     var info = await ProfileInfo.FetchFromWebsite(factory, uri);
     logger.LogInformation(info.ToString());
@@ -124,7 +169,9 @@ static async Task Test(ILogger<Program> logger, IOptions<ConsoleOptions> options
     // await config.Save(options.Value.ConfigPath);
 }
 
-static async Task ConfigTest(IOptions<ConsoleOptions> options, IHttpClientFactory factory)
+static async Task ConfigTest(
+    [FromServices] IOptions<ConsoleOptions> options,
+    [FromServices] IHttpClientFactory factory)
 {
     // #pragma warning disable CS0612
     //     var oldConfig = await TomatoShriekerConfig.Load(options.Value.ConfigPath);
@@ -141,7 +188,12 @@ static async Task ConfigTest(IOptions<ConsoleOptions> options, IHttpClientFactor
     await newConfig.Save(options.Value.ConfigPath + "_new");
 }
 
-static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory, Uri uri, string accessToken)
+static async Task Setup(
+    [FromServices] ILogger<Program> logger,
+    [FromServices] IOptions<ConsoleOptions> options,
+    [FromServices] IHttpClientFactory factory,
+    Uri uri,
+     string accessToken)
 {
     var info = await ProfileInfo.FetchFromWebsite(factory, uri);
     await AccountRegisterer.SetupAccount(factory, accessToken, info, options.Value.DispNamePrefix, logger);
@@ -150,7 +202,10 @@ static async Task Setup(ILogger<Program> logger, IOptions<ConsoleOptions> option
     await config.Save(options.Value.ConfigPath);
 }
 
-static async Task SetupAll(ILogger<Program> logger, IOptions<ConsoleOptions> options, IHttpClientFactory factory)
+static async Task SetupAll(
+    [FromServices] ILogger<Program> logger,
+    [FromServices] IOptions<ConsoleOptions> options,
+    [FromServices] IHttpClientFactory factory)
 {
     var config = await MastakerConfig.Load(options.Value.ConfigPath);
     foreach (var source in config.Feeds)
