@@ -16,7 +16,7 @@
     <PackageReference Include="Ensure.That" Version="10.1.0" />
     <PackageReference Include="HtmlAgilityPack" Version="1.11.67" />
     <PackageReference Include="JsonDocumentPath" Version="1.0.3" />
-    <PackageReference Include="Mastonet" Version="2.3.1" />
+    <PackageReference Include="Mastonet" Version="3.1.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="8.0.10" PrivateAssets="all" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
