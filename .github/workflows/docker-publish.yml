@@ -46,7 +46,7 @@ jobs:
         tags: ghcr.io/${{ env.image_tag }}:${{ env.GitVersion_FullSemVer }},ghcr.io/${{ env.image_tag }}:dev
         cache-from: type=gha
         cache-to: type=gha,mode=max
-    - uses: getsentry/action-release@v1
+    - uses: getsentry/action-release@v2
       if: github.ref == 'refs/heads/master'
       env:
         SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
