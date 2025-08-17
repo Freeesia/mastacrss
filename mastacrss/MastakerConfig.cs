@@ -27,4 +27,4 @@ partial record MastakerConfig(string BaseUrl, TagConfig? Tag, IList<FeedConfig> 
 partial record FeedConfig(string Id, string Url, string Token, TagConfig? Tag = null);
 
 [YamlObject(NamingConvention.SnakeCase)]
-partial record TagConfig(IReadOnlyList<string>? Always, IReadOnlyList<string>? Ignore, IReadOnlyList<string>? Replace, string? Xpath);
+partial record TagConfig(IReadOnlyList<string>? Always, IReadOnlyList<string>? Ignore, IReadOnlyList<string>? Replace, string? Xpath, bool? Keywords);
