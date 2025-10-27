@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="CodeHollow.FeedReader" Version="1.2.6" />
-    <PackageReference Include="ConsoleAppFramework" Version="5.6.1">
+    <PackageReference Include="ConsoleAppFramework" Version="5.6.2">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
